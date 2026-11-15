@@ -170,6 +170,11 @@
       flex: none
     }
 
+    .tp {
+      flex-wrap: wrap;
+      overflow: visible
+    }
+
     .ph {
       display: flex;
       align-items: center;
@@ -520,6 +525,18 @@
     const { useState, useEffect } = React; const html = htm.bind(React.createElement);
     const { REGIONS, GAMES, AV, REGIONAL, VARIANTS } = window.DATA;
     const GMAX = new Set(window.DATA.GMAX || []); const KEY = 'dexter.v1', PKEY = 'dexter.prefs';
+    const META = window.DATA.META || {};
+    const M = x => META[x.k] || META[x.b];
+    const CATS = [['ini', 'Iniciales'], ['leg', 'Legendarios'], ['sing', 'Singulares'], ['mega', 'Megaevoluciones'], ['bebe', 'Bebés'], ['reg', 'Regionales'], ['ultra', 'Ultraentes'], ['para', 'Paradojas']];
+    const TYPES = ['Normal', 'Fuego', 'Agua', 'Planta', 'Eléctrico', 'Hielo', 'Lucha', 'Veneno', 'Tierra', 'Volador', 'Psíquico', 'Bicho', 'Roca', 'Fantasma', 'Dragón', 'Siniestro', 'Acero', 'Hada'];
+    const passF = (x, fc, ft) => {
+      const m = M(x); if (!m) return !fc && !ft.length;
+      if (fc === 'reg') { if (!/ de (Alola|Galar|Hisui|Paldea)/.test(x.k)) return false }
+      else if (fc && (x.f || !m[3].includes(fc))) return false;
+      if (ft.length && (ft.length === 1 ? !m[2].includes(ft[0]) : !(m[2].includes(ft[0]) && m[2].includes(ft[1])))) return false;
+      return true
+    };
+    const fmtM = x => { const m = M(x); return m ? (m[0] / 10).toFixed(1) + ' m · ' + (m[1] / 10).toFixed(1) + ' kg' : '' };
     const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {} } catch (e) { return {} } };
     const loadP = () => { try { return { go: 'new', po: 'num', forms: true, ...(JSON.parse(localStorage.getItem(PKEY)) || {}) } } catch (e) { return { go: 'new', po: 'num', forms: true } } };
     const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -571,6 +588,7 @@
     function App() {
       const [data, setData] = useState(load); const [q, setQ] = useState(''); const [reg, setReg] = useState(-1); const [gm, setGm] = useState(''); const [sel, setSel] = useState(null);
       const [pr, setPr] = useState(loadP); const sp = (k, v) => setPr(p => ({ ...p, [k]: v }));
+      const [fc, setFc] = useState(''); const [ft, setFt] = useState([]); const [fo, setFo] = useState(false);
       useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(data)) } catch (e) { } }, [data]);
       useEffect(() => { try { localStorage.setItem(PKEY, JSON.stringify(pr)) } catch (e) { } }, [pr]);
       const gs = arr => [...arr].sort(GSORT[pr.go] || GSORT.new);
@@ -586,24 +604,37 @@
       const owned = cnt.reduce((a, l) => a + l.filter(x => own(x.k)).length, 0);
       const nq = norm(q);
       const cmp = pr.po === 'az' ? (a, b) => label(a, pr.forms).localeCompare(label(b, pr.forms), 'es') : pr.po === 'desc' ? (a, b) => b.o - a.o : (a, b) => a.o - b.o;
-      let groups = REGIONS.map((r, i) => ({ r, i, all: cnt[i], list: base[i].filter(x => !nq || norm(label(x, pr.forms)).includes(nq)).sort(cmp) })).filter(g => (reg < 0 || g.i === reg) && g.list.length);
+      let groups = REGIONS.map((r, i) => ({ r, i, all: cnt[i], list: ENTRIES[i].filter(x => (pr.forms || !x.f || fc === 'reg') && inG(x) && passF(x, fc, ft) && (!nq || norm(label(x, pr.forms)).includes(nq))).sort(cmp) })).filter(g => (reg < 0 || g.i === reg) && g.list.length);
       if (pr.po === 'desc') groups = groups.slice().reverse();
+      if (/^[hw][ud]$/.test(pr.po)) {
+        const k = pr.po[0] === 'h' ? 0 : 1, s = pr.po[1] === 'u' ? 1 : -1;
+        const list = groups.flatMap(g => g.list).sort((a, b) => s * (((M(a) || [])[k] || 0) - ((M(b) || [])[k] || 0)));
+        groups = list.length ? [{ r: { name: k ? 'Peso' : 'Altura' }, i: -1, all: list.filter(x => !x.f), list }] : [];
+      }
       const sx = sel && ENTRIES.flat().find(x => x.k === sel);
+
       return html`<div><header><h1>Dexter</h1>
   <div class="top"><span>${gm || 'Living Dex'}</span><span>${owned} / ${total} · ${total ? (owned / total * 100).toFixed(1) : 0} %</span></div>
   <div class="bar"><i style=${{ width: (total ? owned / total * 100 : 0) + '%' }}></i></div>
   <select value=${gm} onChange=${e => setGm(e.target.value)}><option value="">Todos los juegos (Living Dex)</option>${gs(GAMES).map(x => html`<option key=${x} value=${x}>Jugando: ${x}</option>`)}</select>
   <div class="opts">
-   <select aria-label="Orden de los juegos" value=${pr.go} onChange=${e => sp('go', e.target.value)}><option value="new">Juegos: más nuevo primero</option><option value="old">Juegos: más antiguo primero</option><option value="az">Juegos: A → Z</option></select>
-   <select aria-label="Orden de los Pokémon" value=${pr.po} onChange=${e => sp('po', e.target.value)}><option value="num">Pokémon: nº ascendente</option><option value="desc">Pokémon: nº descendente</option><option value="az">Pokémon: A → Z</option></select>
-   <button style=${{ flex: '0 0 auto' }} class=${pr.forms ? 'on' : ''} onClick=${() => sp('forms', !pr.forms)}>Formas</button></div>
+    <select aria-label="Orden de los juegos" value=${pr.go} onChange=${e => sp('go', e.target.value)}><option value="new">Juegos: más nuevo primero</option><option value="old">Juegos: más antiguo primero</option><option value="az">Juegos: A → Z</option></select>
+    <select aria-label="Orden de los Pokémon" value=${pr.po} onChange=${e => sp('po', e.target.value)}><option value="num">Pokémon: nº ascendente</option><option value="desc">Pokémon: nº descendente</option><option value="az">Pokémon: A → Z</option><option value="hu">Pokémon: altura ↑</option><option value="hd">Pokémon: altura ↓</option><option value="wu">Pokémon: peso ↑</option><option value="wd">Pokémon: peso ↓</option></select>
+    <button style=${{ flex: '0 0 auto' }} class=${pr.forms ? 'on' : ''} onClick=${() => sp('forms', !pr.forms)}>Formas</button>
+  </div>
+  <div class="opts">
+    <select aria-label="Categoría" value=${fc} onChange=${e => setFc(e.target.value)}><option value="">Categoría: todas</option>${CATS.map(([k, n]) => html`<option key=${k} value=${k}>${n}</option>`)}</select>
+    <button class=${ft.length ? 'on' : ''} onClick=${() => setFo(!fo)}>Tipos${ft.length ? ' · ' + ft.join('/') : ''}</button>
+    ${fc || ft.length ? html`<button onClick=${() => { setFc(''); setFt([]) }}>Limpiar</button>` : null}
+  </div>
+  ${fo ? html`<div class="chips tp">${TYPES.map(t => html`<button key=${t} class=${ft.includes(t) ? 'on' : ''} onClick=${() => setFt(a => a.includes(t) ? a.filter(z => z !== t) : [...a, t].slice(-2))}>${t}</button>`)}</div>` : null}
   ${gm ? html`<div class="hint">Toca un Pokémon para marcarlo en este juego; toca su imagen para ver el detalle.</div>` : null}
   <input style=${{ marginTop: 8 }} type="search" placeholder="Buscar Pokémon o forma…" value=${q} onInput=${e => setQ(e.target.value)}/>
   <div class="chips"><button class=${reg < 0 ? 'on' : ''} onClick=${() => setReg(-1)}>Todas</button>${REGIONS.map((r, i) => html`<button key=${r.name} class=${reg === i ? 'on' : ''} onClick=${() => setReg(i)}>${r.name}</button>`)}</div></header>
   ${groups.length ? groups.map(({ r, all, list }) => html`<div key=${r.name}><h2><span>${r.name}</span><span>${all.filter(x => own(x.k)).length}/${all.length}</span></h2>
    <div class="list">${list.map(x => {
         const n = x.k, e = data[n]; return html`<div class="row" key=${n} onClick=${() => gm ? tgl(n) : setSel(n)}>
-    <span onClick=${ev => { ev.stopPropagation(); setSel(n) }}><${Sprite} name=${n} s=${x.s}/></span><div class="nm"><b class=${own(n) ? '' : 'mu'}><span class="num">#${String(NUM[x.b]).padStart(4, '0')}</span>${label(x, pr.forms)}</b>${e && e.games.length ? html`<small>${gs(e.games).join(', ')}</small>` : null}</div>
+    <span onClick=${ev => { ev.stopPropagation(); setSel(n) }}><${Sprite} name=${n} s=${x.s}/></span><div class="nm"><b class=${own(n) ? '' : 'mu'}><span class="num">#${String(NUM[x.b]).padStart(4, '0')}</span>${label(x, pr.forms)}</b>${/^[hw]/.test(pr.po) ? html`<small>${fmtM(x)}</small>` : null}${e && e.games.length ? html`<small>${gs(e.games).join(', ')}</small>` : null}</div>
     ${e && e.shiny ? html`<span class="tg y">✦</span>` : null}${e && e.alpha ? html`<span class="tg p">α</span>` : null}${e && e.mega ? html`<span class="tg o">M</span>` : null}${e && e.gmax ? html`<span class="tg r">G</span>` : null}
     <span class=${'ck' + (own(n) ? ' on' : '')}>${own(n) ? '✓' : ''}</span></div>`
       })}</div></div>`) : html`<div class="empty">Sin resultados.</div>`}
