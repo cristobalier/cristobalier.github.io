@@ -1,0 +1,1 @@
+quitado el sync de google, ya que no es necesario y no funciona bien.
