@@ -150,6 +150,74 @@
       overflow: hidden
     }
 
+    .row.pk {
+      background: rgba(47, 107, 255, .12)
+    }
+
+    .bulk {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 15;
+      max-width: 640px;
+      margin: auto;
+      background: var(--card);
+      border-top: 1px solid var(--ln);
+      padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+      box-shadow: 0 -4px 16px rgba(0, 0, 0, .15)
+    }
+
+    .bk-top {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap
+    }
+
+    .bk-top b {
+      flex: 1;
+      font-size: 14px
+    }
+
+    .bk-top button,
+    .bk-row button {
+      padding: 7px 10px;
+      border-radius: 9px;
+      border: 1px solid var(--ln);
+      background: var(--bg);
+      color: var(--tx);
+      font-size: 13px
+    }
+
+    .bk-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 6px
+    }
+
+    .bk-row select {
+      flex: 1;
+      min-width: 0;
+      padding: 8px;
+      font-size: 14px
+    }
+
+    .bk-row button {
+      flex: 1
+    }
+
+    .bk-row button:not(:disabled) {
+      background: var(--ac);
+      color: #fff;
+      border-color: var(--ac)
+    }
+
+    .bk-row button:disabled {
+      opacity: .5
+    }
+
     .row {
       display: flex;
       align-items: center;
@@ -600,6 +668,7 @@
       return out
     });
     const label = (x, forms) => forms && x.def ? x.b + ' (' + x.def + ')' : x.k;
+    const EK = {}; ENTRIES.forEach(l => l.forEach(x => { EK[x.k] = x }));
     function Sprite({ name, s, cls }) {
       const [bad, setBad] = useState(false);
       return bad ? html`<div class=${'sp ph ' + (cls || '')}>${name[0]}</div>`
@@ -627,6 +696,7 @@
   <a class="kofi" href="https://ko-fi.com/cristobalier" target="_blank" rel="noopener">☕ Apóyame en Ko-fi</a></div>
   <small>Datos de disponibilidad aproximados. Pokémon y sus nombres son marcas de sus respectivos dueños. Si inicias sesión, tu progreso se guarda en tu cuenta de Google y no se comparte con nadie.</small></footer>`}
     function App() {
+      const [sm, setSm] = useState(false); const [pk, setPk] = useState({}); const [bg, setBg] = useState(''); const [msg, setMsg] = useState('');
       const [data, setData] = useState(load); const [q, setQ] = useState(''); const [reg, setReg] = useState(-1); const [gm, setGm] = useState(''); const [sel, setSel] = useState(null);
       const [pr, setPr] = useState(loadP); const sp = (k, v) => setPr(p => ({ ...p, [k]: v }));
       const [fc, setFc] = useState(''); const [ft, setFt] = useState([]); const [fo, setFo] = useState(false);
@@ -655,6 +725,19 @@
         groups = list.length ? [{ r: { name: k ? 'Peso' : 'Altura' }, i: -1, all: list.filter(x => !x.f), list }] : [];
       }
       const sx = sel && ENTRIES.flat().find(x => x.k === sel);
+      const bulk = (keys, fn) => setData(d => { const r = { ...d }; keys.forEach(n => { const x = { ...blank, ...(r[n] || {}) }; x.games = [...x.games]; fn(x); (!x.games.length && !x.shiny && !x.alpha && !x.mega && !x.gmax) ? delete r[n] : r[n] = x }); return r });
+      const togglePick = n => setPk(p => { const r = { ...p }; r[n] ? delete r[n] : r[n] = true; return r });
+      const picked = Object.keys(pk).filter(k => pk[k]);
+      const pickedEntries = picked.map(k => EK[k]).filter(Boolean);
+      const bgames = [...new Set(pickedEntries.flatMap(av))];
+      const selectVisible = () => setPk(p => { const r = { ...p }; groups.forEach(g => g.list.forEach(x => { r[x.k] = true })); return r });
+      const applyBulk = add => {
+        const g = gm || bg; if (!g) return;
+        const ok = pickedEntries.filter(x => av(x).includes(g)).map(x => x.k);
+        const skip = pickedEntries.length - ok.length;
+        bulk(ok, x => { x.games = add ? (x.games.includes(g) ? x.games : [...x.games, g]) : x.games.filter(z => z !== g) });
+        setMsg((add ? 'Marcados ' : 'Quitados ') + ok.length + ' en ' + g + (skip ? ' · ' + skip + ' omitidos (no están en ese juego)' : ''));
+      };
 
       return html`<div><header><h1>Dexter</h1>
         <div class="acct">${user
@@ -672,6 +755,7 @@
     <select aria-label="Categoría" value=${fc} onChange=${e => setFc(e.target.value)}><option value="">Categoría: todas</option>${CATS.map(([k, n]) => html`<option key=${k} value=${k}>${n}</option>`)}</select>
     <button class=${ft.length ? 'on' : ''} onClick=${() => setFo(!fo)}>Tipos${ft.length ? ' · ' + ft.join('/') : ''}</button>
     ${fc || ft.length ? html`<button onClick=${() => { setFc(''); setFt([]) }}>Limpiar</button>` : null}
+    <button class=${sm ? 'on' : ''} onClick=${() => { setSm(!sm); setPk({}); setMsg('') }}>Seleccionar</button>
   </div>
   ${fo ? html`<div class="chips tp">${TYPES.map(t => html`<button key=${t} class=${ft.includes(t) ? 'on' : ''} onClick=${() => setFt(a => a.includes(t) ? a.filter(z => z !== t) : [...a, t].slice(-2))}>${t}</button>`)}</div>` : null}
   ${gm ? html`<div class="hint">Toca un Pokémon para marcarlo en este juego; toca su imagen para ver el detalle.</div>` : null}
@@ -679,13 +763,22 @@
   <div class="chips"><button class=${reg < 0 ? 'on' : ''} onClick=${() => setReg(-1)}>Todas</button>${REGIONS.map((r, i) => html`<button key=${r.name} class=${reg === i ? 'on' : ''} onClick=${() => setReg(i)}>${r.name}</button>`)}</div></header>
   ${groups.length ? groups.map(({ r, all, list }) => html`<div key=${r.name}><h2><span>${r.name}</span><span>${all.filter(x => own(x.k)).length}/${all.length}</span></h2>
    <div class="list">${list.map(x => {
-            const n = x.k, e = data[n]; return html`<div class="row" key=${n} onClick=${() => gm ? tgl(n) : setSel(n)}>
-    <span onClick=${ev => { ev.stopPropagation(); setSel(n) }}><${Sprite} name=${n} s=${x.s}/></span><div class="nm"><b class=${own(n) ? '' : 'mu'}><span class="num">#${String(NUM[x.b]).padStart(4, '0')}</span>${label(x, pr.forms)}</b>${/^[hw]/.test(pr.po) ? html`<small>${fmtM(x)}</small>` : null}${e && e.games.length ? html`<small>${gs(e.games).join(', ')}</small>` : null}</div>
+            const n = x.k, e = data[n]; return html`<div class=${'row' + (pk[n] ? ' pk' : '')} key=${n} onClick=${() => sm ? togglePick(n) : gm ? tgl(n) : setSel(n)}>
+    <span onClick=${ev => { ev.stopPropagation(); sm ? togglePick(n) : setSel(n) }}><${Sprite} name=${n} s=${x.s}/></span><div class="nm"><b class=${own(n) ? '' : 'mu'}><span class="num">#${String(NUM[x.b]).padStart(4, '0')}</span>${label(x, pr.forms)}</b>${/^[hw]/.test(pr.po) ? html`<small>${fmtM(x)}</small>` : null}${e && e.games.length ? html`<small>${gs(e.games).join(', ')}</small>` : null}</div>
     ${e && e.shiny ? html`<span class="tg y">✦</span>` : null}${e && e.alpha ? html`<span class="tg p">α</span>` : null}${e && e.mega ? html`<span class="tg o">M</span>` : null}${e && e.gmax ? html`<span class="tg r">G</span>` : null}
-    <span class=${'ck' + (own(n) ? ' on' : '')}>${own(n) ? '✓' : ''}</span></div>`
+    <span class=${'ck' + ((sm ? pk[n] : own(n)) ? ' on' : '')}>${(sm ? pk[n] : own(n)) ? '✓' : ''}</span></div>`
           })}</div></div>`) : html`<div class="empty">Sin resultados.</div>`}
   <${Footer}/>
-  <div style=${{ height: 30 }}></div>
+  <div style=${{ height: sm ? 170 : 30 }}></div>
+${sm ? html`<div class="bulk">
+  <div class="bk-top"><b>${picked.length} seleccionados</b>
+    <button onClick=${selectVisible}>Todos los visibles</button>
+    <button onClick=${() => setPk({})}>Ninguno</button>
+    <button onClick=${() => { setSm(false); setPk({}); setMsg('') }}>Listo</button></div>
+  ${gm ? null : html`<div class="bk-row"><select value=${bg} onChange=${e => setBg(e.target.value)}><option value="">¿En qué juego?</option>${gs(bgames).map(x => html`<option key=${x} value=${x}>${x}</option>`)}</select></div>`}
+  <div class="bk-row"><button disabled=${!(gm || bg) || !picked.length} onClick=${() => applyBulk(true)}>Añadir</button><button disabled=${!(gm || bg) || !picked.length} onClick=${() => applyBulk(false)}>Quitar</button></div>
+  ${msg ? html`<div class="hint">${msg}</div>` : null}
+</div>` : null}
   ${sx ? html`<${Sheet} key=${sx.k} x=${sx} title=${label(sx, pr.forms)} e=${{ ...blank, ...(data[sel] || {}) }} av=${av(sx)} upd=${upd} del=${del} close=${() => setSel(null)} gs=${gs}/>` : null}</div>`
     }
     ReactDOM.createRoot(document.getElementById('root')).render(html`<${App}/>`);
