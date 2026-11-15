@@ -1,0 +1,10 @@
+{
+  "name": "Dexter",
+  "short_name": "Dexter",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#f4f5f7",
+  "icons": [{ "src": "dexter.png", "sizes": "1024x1024", "type": "image/png" }]
+}
