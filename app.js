@@ -158,11 +158,19 @@ const ENTRIES = REGIONS.map((r) => {
 });
 const label = (x, forms) => (forms && x.def ? x.b + " (" + x.def + ")" : x.k);
 /* Marcas especiales y en qué Pokémon se pueden obtener */
+/* Ícono shiny: dos destellos de cuatro puntas, como en los juegos */
+const Shiny = () =>
+  html`<svg class="shi" viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      d="M9 7Q9 15 17 15Q9 15 9 23Q9 15 1 15Q9 15 9 7ZM19 1Q19 6 24 6Q19 6 19 11Q19 6 14 6Q19 6 19 1Z"
+    />
+  </svg>`;
+/* [clave, etiqueta del botón, nombre para los mensajes] */
 const MARKS = [
-  ["shiny", "✦ Shiny"],
-  ["alpha", "α Alfa"],
-  ["mega", "M Mega"],
-  ["gmax", "G Gigamax"],
+  ["shiny", html`<${Shiny} /> Shiny`, "Shiny"],
+  ["alpha", "α Alfa", "Alfa"],
+  ["mega", "M Mega", "Mega"],
+  ["gmax", "G Gigamax", "Gigamax"],
 ];
 const SHINY_LOCK = new Set(window.DATA.SHINY_LOCK || []);
 const ALPHA_GAMES = ["Leyendas: Arceus", "Leyendas: Z-A"];
@@ -183,18 +191,28 @@ ENTRIES.forEach((l) =>
     EK[x.k] = x;
   }),
 );
-function Sprite({ name, s, cls }) {
-  const [bad, setBad] = useState(false);
-  return bad
+/* Imágenes a probar en orden según las marcas: Gigamax > Mega > normal, en versión shiny si corresponde.
+   Si una no existe (por ejemplo, algunas megas nuevas), pasa a la siguiente; al final, la normal. */
+const IMG = "https://img.pokemondb.net/sprites/home/";
+const srcs = (x, e) => {
+  const b = slug(x.b),
+    list = [];
+  if (e && e.gmax && x.can.gmax) list.push(b + "-gigantamax");
+  if (e && e.mega && x.can.mega) list.push(b + "-mega", b + "-mega-x");
+  list.push(x.s);
+  const sh = e && e.shiny ? list.map((s) => IMG + "shiny/" + s + ".png") : [];
+  return [...sh, ...list.map((s) => IMG + "normal/" + s + ".png")];
+};
+function Sprite({ name, src, cls }) {
+  const [i, setI] = useState(0);
+  return i >= src.length
     ? html`<div class=${"sp ph " + (cls || "")}>${name[0]}</div>`
     : html`<img
         class=${"sp " + (cls || "")}
         loading="lazy"
         alt=""
-        src=${"https://img.pokemondb.net/sprites/home/normal/" +
-        (s || slug(name)) +
-        ".png"}
-        onError=${() => setBad(true)}
+        src=${src[i]}
+        onError=${() => setI(i + 1)}
       />`;
 }
 function Sheet({ x, title, e, av, upd, del, close, gs }) {
@@ -214,10 +232,11 @@ function Sheet({ x, title, e, av, upd, del, close, gs }) {
     >
       ${t}
     </button>`;
+  const src = srcs(x, e);
   return html`<div class="ov" onClick=${close}>
     <div class="sh" onClick=${(ev) => ev.stopPropagation()}>
       <div class="hd">
-        <${Sprite} name=${name} s=${x.s} />
+        <${Sprite} key=${src[0]} name=${name} src=${src} />
         <h3>
           <span class="num">#${String(NUM[x.b]).padStart(4, "0")}</span>${title}
         </h3>
@@ -500,7 +519,10 @@ function App() {
       });
       return r;
     });
-    const what = [g, ...MARKS.filter(([k]) => bm.includes(k)).map(([, t]) => t)]
+    const what = [
+      g,
+      ...MARKS.filter(([k]) => bm.includes(k)).map(([, , nm]) => nm),
+    ]
       .filter(Boolean)
       .join(" + ");
     setMsg(
@@ -676,7 +698,10 @@ function App() {
                         ev.stopPropagation();
                         sm ? togglePick(n) : setSel(n);
                       }}
-                      ><${Sprite} name=${n} s=${x.s}
+                      ><${Sprite}
+                        key=${srcs(x, e)[0]}
+                        name=${n}
+                        src=${srcs(x, e)}
                     /></span>
                     <div class="nm">
                       <b class=${o ? "" : "mu"}
@@ -690,7 +715,7 @@ function App() {
                         : null}
                     </div>
                     ${e && e.shiny
-                      ? html`<span class="tg y">✦</span>`
+                      ? html`<span class="tg y"><${Shiny} /></span>`
                       : null}${e && e.alpha
                       ? html`<span class="tg p">α</span>`
                       : null}${e && e.mega

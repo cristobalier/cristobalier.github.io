@@ -254,7 +254,14 @@ h2 {
   font-size: 14px;
 }
 .y {
-  color: #e0a800;
+  color: #e5484d;
+}
+/* Ícono shiny: toma el color del texto donde está */
+.shi {
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+  vertical-align: -0.12em;
 }
 .p {
   color: #9b5de5;
