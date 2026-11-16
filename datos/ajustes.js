@@ -19,6 +19,62 @@
      Fuente: serebii.net/brilliantdiamondshiningpearl/unobtainable.shtml */
   D.REGIONS.slice(0, 4).forEach((r) => r.pokemon.forEach((n) => add(n, 18)));
 
+  /* Espada / Escudo con el DLC Las Nieves de la Corona: legendarios de las Aventuras Dinamax
+     (algunos son exclusivos de una de las dos versiones) y los que se obtienen en la historia del DLC.
+     Fuentes: ign.com/wikis/pokemon-sword-shield/Crown_Tundra_Legendary_Pokemon y serebii.net/swordshield/legendary.shtml */
+  [
+    "Mewtwo",
+    "Raikou",
+    "Entei",
+    "Suicune",
+    "Lugia",
+    "Ho-Oh",
+    "Latias",
+    "Latios",
+    "Kyogre",
+    "Groudon",
+    "Rayquaza",
+    "Uxie",
+    "Mesprit",
+    "Azelf",
+    "Dialga",
+    "Palkia",
+    "Heatran",
+    "Giratina",
+    "Cresselia",
+    "Regigigas",
+    "Tornadus",
+    "Thundurus",
+    "Landorus",
+    "Reshiram",
+    "Zekrom",
+    "Kyurem",
+    "Keldeo",
+    "Xerneas",
+    "Yveltal",
+    "Zygarde",
+    "Tapu Koko",
+    "Tapu Lele",
+    "Tapu Bulu",
+    "Tapu Fini",
+    "Cosmog",
+    "Cosmoem",
+    "Solgaleo",
+    "Lunala",
+    "Necrozma",
+    "Nihilego",
+    "Buzzwole",
+    "Pheromosa",
+    "Xurkitree",
+    "Celesteela",
+    "Kartana",
+    "Guzzlord",
+    "Stakataka",
+    "Blacephalon",
+    "Poipole",
+    "Naganadel",
+  ].forEach((n) => add(n, 17));
+
   /* Correcciones sueltas: "Nombre": [índices de juego] */
   const EXTRA = {};
   for (const n in EXTRA) EXTRA[n].forEach((i) => add(n, i));
