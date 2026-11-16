@@ -97,25 +97,41 @@ const blank = {
   shiny: false,
   alpha: false,
   mega: false,
+  megaX: false,
+  megaY: false,
+  megaN: false,
+  megaZ: false,
   gmax: false,
 };
+/* Campos de las especies con dos Megaevoluciones (ver MEGA2 más abajo) */
+const MKEYS = ["megaX", "megaY", "megaN", "megaZ"];
 const isEmpty = (x) =>
-  !x.games.length && !x.shiny && !x.alpha && !x.mega && !x.gmax;
+  !x.games.length &&
+  !x.shiny &&
+  !x.alpha &&
+  !x.mega &&
+  !x.gmax &&
+  !MKEYS.some((k) => x[k]);
 /* Junta dos progresos sin perder nada: une los juegos y suma las marcas */
 const merge = (a, b) => {
   const r = { ...a };
   for (const k in b) {
     const x = a[k],
       y = { ...blank, ...b[k] };
-    r[k] = x
-      ? {
-          games: [...new Set([...x.games, ...y.games])],
-          shiny: x.shiny || y.shiny,
-          alpha: x.alpha || y.alpha,
-          mega: x.mega || y.mega,
-          gmax: x.gmax || y.gmax,
-        }
-      : y;
+    if (!x) {
+      r[k] = y;
+      continue;
+    }
+    r[k] = {
+      games: [...new Set([...x.games, ...y.games])],
+      shiny: x.shiny || y.shiny,
+      alpha: x.alpha || y.alpha,
+      mega: x.mega || y.mega,
+      gmax: x.gmax || y.gmax,
+    };
+    MKEYS.forEach((m) => {
+      r[k][m] = !!(x[m] || y[m]);
+    });
   }
   return r;
 };
@@ -194,14 +210,55 @@ ENTRIES.forEach((l) =>
 /* Imágenes a probar en orden según las marcas: Gigamax > Mega > normal, en versión shiny si corresponde.
    Si una no existe (por ejemplo, algunas megas nuevas), pasa a la siguiente; al final, la normal. */
 const IMG = "https://img.pokemondb.net/sprites/home/";
-const srcs = (x, e) => {
+/* Especies con dos Megaevoluciones: cada una se marca aparte.
+   [campo guardado, nombre, sufijo de la imagen]. Para sumar otra especie, agrégala aquí. */
+const XY = [
+  ["megaX", "Mega X", "mega-x"],
+  ["megaY", "Mega Y", "mega-y"],
+];
+const NZ = [
+  ["megaN", "Mega", "mega"],
+  ["megaZ", "Mega Z", "mega-z"],
+];
+const MEGA2 = {
+  Charizard: XY,
+  Mewtwo: XY,
+  Raichu: XY,
+  Absol: NZ,
+  Garchomp: NZ,
+  Lucario: NZ,
+};
+const urls = (list, e) => [
+  ...(e && e.shiny ? list.map((s) => IMG + "shiny/" + s + ".png") : []),
+  ...list.map((s) => IMG + "normal/" + s + ".png"),
+];
+const megaImgs = (x, e) => {
   const b = slug(x.b),
-    list = [];
-  if (e && e.gmax && x.can.gmax) list.push(b + "-gigantamax");
-  if (e && e.mega && x.can.mega) list.push(b + "-mega", b + "-mega-x");
+    o = MEGA2[x.b];
+  if (!o) return [b + "-mega", b + "-mega-x"];
+  const f = o.find(([k]) => e[k]) || o[0];
+  return [b + "-" + f[2]];
+};
+const srcs = (x, e) => {
+  const list = [];
+  if (e && e.gmax && x.can.gmax) list.push(slug(x.b) + "-gigantamax");
+  if (e && e.mega && x.can.mega) list.push(...megaImgs(x, e));
   list.push(x.s);
-  const sh = e && e.shiny ? list.map((s) => IMG + "shiny/" + s + ".png") : [];
-  return [...sh, ...list.map((s) => IMG + "normal/" + s + ".png")];
+  return urls(list, e);
+};
+/* En la ficha: una imagen por cada versión que tienes marcada (normal, cada Mega, Gigamax) */
+const views = (x, e) => {
+  const b = slug(x.b),
+    v = [["Normal", [x.s]]],
+    o = MEGA2[x.b];
+  if (x.can.mega && o) {
+    o.forEach(([k, t, s]) => {
+      if (e[k]) v.push([t, [b + "-" + s]]);
+    });
+    if (e.mega && !o.some(([k]) => e[k])) v.push(["Mega", [b + "-" + o[0][2]]]);
+  } else if (x.can.mega && e.mega) v.push(["Mega", megaImgs(x, e)]);
+  if (x.can.gmax && e.gmax) v.push(["Gigamax", [b + "-gigantamax"]]);
+  return v.map(([t, list]) => [t, urls(list, e)]);
 };
 function Sprite({ name, src, cls }) {
   const [i, setI] = useState(0);
@@ -232,11 +289,36 @@ function Sheet({ x, title, e, av, upd, del, close, gs }) {
     >
       ${t}
     </button>`;
-  const src = srcs(x, e);
+  /* Cada Mega se marca aparte; "mega" queda encendido si tienes cualquiera */
+  const mo = x.can.mega && MEGA2[x.b];
+  const tgm = (k, t) =>
+    html`<button
+      key=${k}
+      class=${e[k] ? "on" : ""}
+      onClick=${() =>
+        upd(name, (x) => {
+          x[k] = !x[k];
+          x.mega = mo.some(([m]) => x[m]);
+        })}
+    >
+      ${t}
+    </button>`;
+  const two = !!mo;
+  const vw = views(x, e);
   return html`<div class="ov" onClick=${close}>
     <div class="sh" onClick=${(ev) => ev.stopPropagation()}>
       <div class="hd">
-        <${Sprite} key=${src[0]} name=${name} src=${src} />
+        ${vw.length === 1
+          ? html`<${Sprite} key=${vw[0][1][0]} name=${name} src=${vw[0][1]} />`
+          : html`<div class="gal">
+              ${vw.map(
+                ([t, src]) =>
+                  html`<figure key=${t}>
+                    <${Sprite} key=${src[0]} name=${name} src=${src} />
+                    <figcaption>${t}</figcaption>
+                  </figure>`,
+              )}
+            </div>`}
         <h3>
           <span class="num">#${String(NUM[x.b]).padStart(4, "0")}</span>${title}
         </h3>
@@ -287,7 +369,13 @@ function Sheet({ x, title, e, av, upd, del, close, gs }) {
         )}
       </div>
       <div class="tgl">
-        ${MARKS.map(([k, t]) => (x.can[k] || e[k] ? tg(k, t) : null))}
+        ${MARKS.map(([k, t]) =>
+          k === "mega" && two
+            ? mo.map(([m, t]) => tgm(m, "M " + t))
+            : x.can[k] || e[k]
+              ? tg(k, t)
+              : null,
+        )}
       </div>
       ${has
         ? conf
@@ -514,6 +602,15 @@ function App() {
             : x.games.filter((z) => z !== g);
         p.m.forEach((m) => {
           x[m] = add;
+          /* En especies con dos Megas, "Mega" en la selección marca la primera si no tenías ninguna; al quitar, quita todas */
+          const o = m === "mega" && MEGA2[EK[p.k].b];
+          if (o) {
+            if (!add)
+              o.forEach(([k]) => {
+                x[k] = false;
+              });
+            else if (!o.some(([k]) => x[k])) x[o[0][0]] = true;
+          }
         });
         isEmpty(x) ? delete r[p.k] : (r[p.k] = x);
       });

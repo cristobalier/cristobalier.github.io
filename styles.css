@@ -392,6 +392,26 @@ h2 {
 .hd h3 {
   margin: 6px 0 14px;
 }
+/* Ficha con varias versiones marcadas: una imagen por versión, con su nombre abajo */
+.gal {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.gal figure {
+  margin: 0;
+  text-align: center;
+}
+.gal .sp {
+  width: 76px;
+  height: 76px;
+}
+.gal figcaption {
+  font-size: 12px;
+  color: var(--mu);
+  margin-top: 2px;
+}
 .tgl {
   display: flex;
   gap: 8px;
