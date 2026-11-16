@@ -102,6 +102,7 @@ const blank = {
   megaN: false,
   megaZ: false,
   gmax: false,
+  primal: false,
 };
 /* Campos de las especies con dos Megaevoluciones (ver MEGA2 más abajo) */
 const MKEYS = ["megaX", "megaY", "megaN", "megaZ"];
@@ -111,6 +112,7 @@ const isEmpty = (x) =>
   !x.alpha &&
   !x.mega &&
   !x.gmax &&
+  !x.primal &&
   !MKEYS.some((k) => x[k]);
 /* Junta dos progresos sin perder nada: une los juegos y suma las marcas */
 const merge = (a, b) => {
@@ -128,6 +130,7 @@ const merge = (a, b) => {
       alpha: x.alpha || y.alpha,
       mega: x.mega || y.mega,
       gmax: x.gmax || y.gmax,
+      primal: !!(x.primal || y.primal),
     };
     MKEYS.forEach((m) => {
       r[k][m] = !!(x[m] || y[m]);
@@ -187,7 +190,10 @@ const MARKS = [
   ["alpha", "α Alfa", "Alfa"],
   ["mega", "M Mega", "Mega"],
   ["gmax", "G Gigamax", "Gigamax"],
+  ["primal", "Ω Primigenio", "Primigenio"],
 ];
+/* Regresión Primigenia: solo Kyogre y Groudon (Rayquaza tiene Megaevolución, no Primigenio) */
+const PRIMAL = new Set(["Kyogre", "Groudon"]);
 const SHINY_LOCK = new Set(window.DATA.SHINY_LOCK || []);
 const ALPHA_GAMES = ["Leyendas: Arceus", "Leyendas: Z-A"];
 /* Se calcula una sola vez: juegos posibles, marcas posibles y nombre normalizado para buscar */
@@ -201,6 +207,7 @@ ENTRIES.forEach((l) =>
       alpha: ALPHA_GAMES.some((g) => x.av.has(g)),
       mega: !x.reg && !!(m && m[3].includes("mega")),
       gmax: !x.reg && GMAX.has(x.b),
+      primal: PRIMAL.has(x.b),
     };
     x.n0 = norm(label(x, false));
     x.n1 = norm(label(x, true));
@@ -209,7 +216,8 @@ ENTRIES.forEach((l) =>
 );
 /* Imágenes a probar en orden según las marcas: Gigamax > Mega > normal, en versión shiny si corresponde.
    Si una no existe (por ejemplo, algunas megas nuevas), pasa a la siguiente; al final, la normal. */
-const IMG = "https://img.pokemondb.net/sprites/home/";
+const IMG = "https://img.pokemondb.net/sprites/home/",
+  ART = "https://img.pokemondb.net/artwork/large/";
 /* Especies con dos Megaevoluciones: cada una se marca aparte.
    [campo guardado, nombre, sufijo de la imagen]. Para sumar otra especie, agrégala aquí. */
 const XY = [
@@ -228,10 +236,53 @@ const MEGA2 = {
   Garchomp: NZ,
   Lucario: NZ,
 };
-const urls = (list, e) => [
-  ...(e && e.shiny ? list.map((s) => IMG + "shiny/" + s + ".png") : []),
-  ...list.map((s) => IMG + "normal/" + s + ".png"),
-];
+/* Por cada imagen se prueba en orden: sprite de PokémonDB, sprite de PokéAPI y la ilustración oficial.
+   PokéAPI ya tiene las Megas nuevas de Z-A (normal y shiny), pero sus imágenes van por número,
+   así que se le pregunta el número una vez y se guarda en el navegador. */
+const urls = (list, e) =>
+  list.flatMap((s) => [
+    ...(e && e.shiny
+      ? [IMG + "shiny/" + s + ".png", { api: s, sh: true }]
+      : []),
+    IMG + "normal/" + s + ".png",
+    { api: s, sh: false },
+    ART + s + ".jpg",
+  ]);
+/* Nombre en PokéAPI a partir del nombre de la imagen de PokémonDB */
+const apiName = (s) =>
+  s
+    .replace(/-gigantamax$/, "-gmax")
+    .replace(/-alolan/, "-alola")
+    .replace(/-galarian/, "-galar")
+    .replace(/-hisuian/, "-hisui")
+    .replace(/-paldean/, "-paldea");
+const PAPI =
+    "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/home/",
+  AKEY = "dexter.api";
+const AIDS = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(AKEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  })(),
+  APEND = {};
+const apiId = (n) =>
+  n in AIDS
+    ? Promise.resolve(AIDS[n])
+    : APEND[n] ||
+      (APEND[n] = fetch("https://pokeapi.co/api/v2/pokemon/" + n)
+        .then((r) => (r.ok ? r.json().then((j) => j.id) : null))
+        .catch(() => undefined)
+        .then((id) => {
+          if (id !== undefined) {
+            AIDS[n] = id;
+            try {
+              localStorage.setItem(AKEY, JSON.stringify(AIDS));
+            } catch (e) {}
+          }
+          return id || null;
+        }));
 const megaImgs = (x, e) => {
   const b = slug(x.b),
     o = MEGA2[x.b];
@@ -242,6 +293,7 @@ const megaImgs = (x, e) => {
 const srcs = (x, e) => {
   const list = [];
   if (e && e.gmax && x.can.gmax) list.push(slug(x.b) + "-gigantamax");
+  if (e && e.primal && x.can.primal) list.push(slug(x.b) + "-primal");
   if (e && e.mega && x.can.mega) list.push(...megaImgs(x, e));
   list.push(x.s);
   return urls(list, e);
@@ -258,19 +310,42 @@ const views = (x, e) => {
     if (e.mega && !o.some(([k]) => e[k])) v.push(["Mega", [b + "-" + o[0][2]]]);
   } else if (x.can.mega && e.mega) v.push(["Mega", megaImgs(x, e)]);
   if (x.can.gmax && e.gmax) v.push(["Gigamax", [b + "-gigantamax"]]);
+  if (x.can.primal && e.primal) v.push(["Primigenio", [b + "-primal"]]);
   return v.map(([t, list]) => [t, urls(list, e)]);
 };
 function Sprite({ name, src, cls }) {
   const [i, setI] = useState(0);
+  const [api, setApi] = useState({});
+  const c = src[i];
+  /* Si toca una imagen de PokéAPI, primero se busca su número */
+  useEffect(() => {
+    if (!c || typeof c === "string" || i in api) return;
+    let live = true;
+    apiId(apiName(c.api)).then((id) => {
+      if (!live) return;
+      id
+        ? setApi((a) => ({
+            ...a,
+            [i]: PAPI + (c.sh ? "shiny/" : "") + id + ".png",
+          }))
+        : setI(i + 1);
+    });
+    return () => {
+      live = false;
+    };
+  }, [i]);
+  const url = typeof c === "string" ? c : api[i];
   return i >= src.length
     ? html`<div class=${"sp ph " + (cls || "")}>${name[0]}</div>`
-    : html`<img
-        class=${"sp " + (cls || "")}
-        loading="lazy"
-        alt=""
-        src=${src[i]}
-        onError=${() => setI(i + 1)}
-      />`;
+    : url
+      ? html`<img
+          class=${"sp " + (cls || "")}
+          loading="lazy"
+          alt=""
+          src=${url}
+          onError=${() => setI(i + 1)}
+        />`
+      : html`<div class=${"sp " + (cls || "")}></div>`;
 }
 function Sheet({ x, title, e, av, upd, del, close, gs }) {
   const name = x.k;
@@ -819,6 +894,8 @@ function App() {
                       ? html`<span class="tg o">M</span>`
                       : null}${e && e.gmax
                       ? html`<span class="tg r">G</span>`
+                      : null}${e && e.primal
+                      ? html`<span class="tg o">Ω</span>`
                       : null}
                     <span class=${"ck" + (on ? " on" : "")}
                       >${on ? "✓" : ""}</span
