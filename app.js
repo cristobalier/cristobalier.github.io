@@ -1,6 +1,6 @@
 /* Dexter · lógica de la app (React + htm, sin compilar)
    Cargar al final, después de los datos y de sync.js. */
-const { useState, useEffect, useDeferredValue } = React;
+const { useState, useEffect, useDeferredValue, useMemo } = React;
 const html = htm.bind(React.createElement);
 const { REGIONS, GAMES, AV, REGIONAL, VARIANTS } = window.DATA;
 const GMAX = new Set(window.DATA.GMAX || []);
@@ -66,16 +66,13 @@ const load = () => {
     return {};
   }
 };
+/* Preferencias: vw = vista ('reg' Pokédex regionales, 'game' Pokédex del juego), gm = juego que estás jugando */
+const PDEF = { go: "new", po: "num", forms: true, vw: "reg", gm: "" };
 const loadP = () => {
   try {
-    return {
-      go: "new",
-      po: "num",
-      forms: true,
-      ...(JSON.parse(localStorage.getItem(PKEY)) || {}),
-    };
+    return { ...PDEF, ...(JSON.parse(localStorage.getItem(PKEY)) || {}) };
   } catch (e) {
-    return { go: "new", po: "num", forms: true };
+    return { ...PDEF };
   }
 };
 const norm = (s) =>
@@ -214,6 +211,42 @@ ENTRIES.forEach((l) =>
     EK[x.k] = x;
   }),
 );
+/* Pokédex del juego: secciones con las especies en el orden del juego (datos/pokedex.js).
+   Cada especie va con sus formas disponibles en ese juego. Solo se muestran las Pokédex del juego;
+   lo que se obtiene fuera de ellas sigue en las Pokédex regionales. Los juegos sin Pokédex cargada se agrupan
+   por región. Se calcula una vez por juego. dn = número en la Pokédex del juego. */
+const GDEX = window.DATA.GDEX || {};
+const BYSLUG = {},
+  FORMS = {};
+ENTRIES.forEach((l) =>
+  l.forEach((x) => {
+    if (x.f) (FORMS[x.b] = FORMS[x.b] || []).push(x);
+    else BYSLUG[slug(x.b)] = x.b;
+  }),
+);
+const GCACHE = {};
+const gameSecs = (g) =>
+  GCACHE[g] ||
+  (GCACHE[g] = (() => {
+    const out = [];
+    (GDEX[GI[g]] || []).forEach(([name, list]) => {
+      const rows = [];
+      list.split(" ").forEach((s, i) => {
+        const b = BYSLUG[s];
+        if (!b) return;
+        [EK[b], ...(FORMS[b] || [])].forEach((x) => {
+          if (x.av.has(g)) rows.push({ ...x, dn: i + 1 });
+        });
+      });
+      out.push({ name, list: rows });
+    });
+    if (out.length) return out;
+    REGIONS.forEach((r, i) => {
+      const rows = ENTRIES[i].filter((x) => x.av.has(g));
+      if (rows.length) out.push({ name: r.name, list: rows });
+    });
+    return out;
+  })());
 /* Imágenes a probar en orden según las marcas: Gigamax > Mega > normal, en versión shiny si corresponde.
    Si una no existe (por ejemplo, algunas megas nuevas), pasa a la siguiente; al final, la normal. */
 const IMG = "https://img.pokemondb.net/sprites/home/",
@@ -517,10 +550,15 @@ function App() {
   const [data, setData] = useState(load);
   const [q, setQ] = useState("");
   const [reg, setReg] = useState(-1);
-  const [gm, setGm] = useState("");
   const [sel, setSel] = useState(null);
   const [pr, setPr] = useState(loadP);
   const sp = (k, v) => setPr((p) => ({ ...p, [k]: v }));
+  /* El juego elegido y la vista se recuerdan para la próxima vez */
+  const gm = GAMES.includes(pr.gm) ? pr.gm : "",
+    setGm = (v) => sp("gm", v),
+    vw = pr.vw;
+  const gv = vw === "game" && !!gm;
+  useEffect(() => setReg(-1), [vw, gm]);
   const [fc, setFc] = useState("");
   const [ft, setFt] = useState([]);
   const [fo, setFo] = useState(false);
@@ -577,8 +615,20 @@ function App() {
     l.filter((x) => (pr.forms || !x.f) && inG(x)),
   );
   const cnt = base.map((l) => l.filter((x) => !x.f));
-  const total = cnt.reduce((a, l) => a + l.length, 0);
-  const owned = cnt.reduce((a, l) => a + l.filter((x) => own(x.k)).length, 0);
+  const secs = gv ? gameSecs(gm) : null;
+  /* En la Pokédex del juego una especie puede salir en dos secciones: para el total se cuenta una vez */
+  const scope = secs
+    ? [
+        ...new Map(
+          secs
+            .flatMap((s) => s.list)
+            .filter((x) => !x.f)
+            .map((x) => [x.k, x]),
+        ).values(),
+      ]
+    : cnt.flat();
+  const total = scope.length;
+  const owned = scope.filter((x) => own(x.k)).length;
   /* La búsqueda usa un valor diferido para que escribir no se trabe */
   const dq = useDeferredValue(q);
   const nq = norm(dq);
@@ -588,26 +638,36 @@ function App() {
       : pr.po === "desc"
         ? (a, b) => b.o - a.o
         : (a, b) => a.o - b.o;
-  let groups = REGIONS.map((r, i) => ({
-    r,
-    i,
-    all: cnt[i],
-    list: ENTRIES[i]
-      .filter(
-        (x) =>
-          (pr.forms || !x.f || fc === "reg") &&
-          inG(x) &&
-          passF(x, fc, ft) &&
-          (!nq || (pr.forms ? x.n1 : x.n0).includes(nq)),
-      )
-      .sort(cmp),
-  })).filter((g) => (reg < 0 || g.i === reg) && g.list.length);
+  const pass = (x) =>
+    (pr.forms || !x.f || fc === "reg") &&
+    passF(x, fc, ft) &&
+    (!nq || (pr.forms ? x.n1 : x.n0).includes(nq));
+  let groups = secs
+    ? secs.map((s, i) => {
+        const l = s.list.filter(pass);
+        return {
+          r: { name: s.name },
+          i,
+          all: s.list.filter((x) => !x.f),
+          list:
+            pr.po === "az" ? l.sort(cmp) : pr.po === "desc" ? l.reverse() : l,
+        };
+      })
+    : REGIONS.map((r, i) => ({
+        r,
+        i,
+        all: cnt[i],
+        list: ENTRIES[i].filter((x) => inG(x) && pass(x)).sort(cmp),
+      }));
+  groups = groups.filter((g) => (reg < 0 || g.i === reg) && g.list.length);
   if (pr.po === "desc") groups = groups.slice().reverse();
   if (/^[hw][ud]$/.test(pr.po)) {
     const k = pr.po[0] === "h" ? 0 : 1,
-      s = pr.po[1] === "u" ? 1 : -1;
+      s = pr.po[1] === "u" ? 1 : -1,
+      seen = new Set();
     const list = groups
       .flatMap((g) => g.list)
+      .filter((x) => !seen.has(x.k) && seen.add(x.k))
       .sort((a, b) => s * (((M(a) || [])[k] || 0) - ((M(b) || [])[k] || 0)));
     groups = list.length
       ? [
@@ -620,6 +680,18 @@ function App() {
         ]
       : [];
   }
+  /* Sugerencias del buscador: los nombres de lo que estás viendo (región o juego) */
+  const sugg = useMemo(
+    () => [
+      ...new Set(
+        (secs ? secs.flatMap((s) => s.list) : ENTRIES.flat().filter(inG))
+          .filter((x) => pr.forms || !x.f)
+          .map((x) => label(x, pr.forms)),
+      ),
+    ],
+    [secs, gm, pr.forms],
+  );
+  const chips = secs ? secs.map((s) => s.name) : REGIONS.map((r) => r.name);
   const sx = sel && EK[sel];
   const togglePick = (n) =>
     setPk((p) => {
@@ -722,7 +794,7 @@ function App() {
             </button>`}
       </div>
       <div class="top">
-        <span>${gm || "Living Dex"}</span
+        <span>${gv ? "Pokédex de " + gm : gm || "Living Dex"}</span
         ><span
           >${owned} / ${total} ·
           ${total ? ((owned / total) * 100).toFixed(1) : 0} %</span
@@ -731,8 +803,30 @@ function App() {
       <div class="bar">
         <i style=${{ width: (total ? (owned / total) * 100 : 0) + "%" }}></i>
       </div>
-      <select value=${gm} onChange=${(e) => setGm(e.target.value)}>
-        <option value="">Todos los juegos (Living Dex)</option>
+      <div class="opts vw">
+        <button
+          class=${vw !== "game" ? "on" : ""}
+          onClick=${() => sp("vw", "reg")}
+        >
+          Pokédex regionales
+        </button>
+        <button
+          class=${vw === "game" ? "on" : ""}
+          onClick=${() => sp("vw", "game")}
+        >
+          Pokédex del juego
+        </button>
+      </div>
+      <select
+        style=${{ marginTop: 8 }}
+        value=${gm}
+        onChange=${(e) => setGm(e.target.value)}
+      >
+        <option value="">
+          ${vw === "game"
+            ? "Elige el juego que estás jugando…"
+            : "Todos los juegos (Living Dex)"}
+        </option>
         ${gs(GAMES).map(
           (x) => html`<option key=${x} value=${x}>Jugando: ${x}</option>`,
         )}
@@ -818,7 +912,10 @@ function App() {
       ${gm
         ? html`<div class="hint">
             Toca un Pokémon para marcarlo en este juego; toca su imagen para ver
-            el detalle.
+            el
+            detalle.${gv
+              ? " Lo que marcas aquí también cuenta en tu Living Dex."
+              : ""}
           </div>`
         : null}
       <input
@@ -827,85 +924,100 @@ function App() {
         placeholder="Buscar Pokémon o forma…"
         value=${q}
         onInput=${(e) => setQ(e.target.value)}
+        list="dx-names"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="none"
+        spellcheck=${false}
+        enterkeyhint="search"
       />
+      <datalist id="dx-names">
+        ${sugg.map((n) => html`<option key=${n} value=${n} />`)}
+      </datalist>
       <div class="chips">
         <button class=${reg < 0 ? "on" : ""} onClick=${() => setReg(-1)}>
           Todas</button
-        >${REGIONS.map(
-          (r, i) =>
+        >${chips.map(
+          (n, i) =>
             html`<button
-              key=${r.name}
+              key=${n}
               class=${reg === i ? "on" : ""}
               onClick=${() => setReg(i)}
             >
-              ${r.name}
+              ${n}
             </button>`,
         )}
       </div>
     </header>
-    ${groups.length
-      ? groups.map(
-          ({ r, all, list }) =>
-            html`<div key=${r.name}>
-              <h2>
-                <span>${r.name}</span
-                ><span
-                  >${all.filter((x) => own(x.k)).length}/${all.length}</span
-                >
-              </h2>
-              <div class="list">
-                ${list.map((x) => {
-                  const n = x.k,
-                    e = data[n],
-                    o = own(n),
-                    on = sm ? pk[n] : o;
-                  return html`<div
-                    class=${"row" + (pk[n] ? " pk" : "")}
-                    key=${n}
-                    onClick=${() =>
-                      sm ? togglePick(n) : gm ? tgl(n) : setSel(n)}
+    ${vw === "game" && !gm
+      ? html`<div class="empty">
+          Elige arriba el juego que estás jugando para ver su Pokédex.
+        </div>`
+      : groups.length
+        ? groups.map(
+            ({ r, all, list }) =>
+              html`<div key=${r.name}>
+                <h2>
+                  <span>${r.name}</span
+                  ><span
+                    >${all.filter((x) => own(x.k)).length}/${all.length}</span
                   >
-                    <span
-                      onClick=${(ev) => {
-                        ev.stopPropagation();
-                        sm ? togglePick(n) : setSel(n);
-                      }}
-                      ><${Sprite}
-                        key=${srcs(x, e)[0]}
-                        name=${n}
-                        src=${srcs(x, e)}
-                    /></span>
-                    <div class="nm">
-                      <b class=${o ? "" : "mu"}
-                        ><span class="num"
-                          >#${String(NUM[x.b]).padStart(4, "0")}</span
-                        >${label(x, pr.forms)}</b
-                      >${/^[hw]/.test(pr.po)
-                        ? html`<small>${fmtM(x)}</small>`
-                        : null}${e && e.games.length
-                        ? html`<small>${gs(e.games).join(", ")}</small>`
-                        : null}
-                    </div>
-                    ${e && e.shiny
-                      ? html`<span class="tg y"><${Shiny} /></span>`
-                      : null}${e && e.alpha
-                      ? html`<span class="tg p">α</span>`
-                      : null}${e && e.mega
-                      ? html`<span class="tg o">M</span>`
-                      : null}${e && e.gmax
-                      ? html`<span class="tg r">G</span>`
-                      : null}${e && e.primal
-                      ? html`<span class="tg o">Ω</span>`
-                      : null}
-                    <span class=${"ck" + (on ? " on" : "")}
-                      >${on ? "✓" : ""}</span
+                </h2>
+                <div class="list">
+                  ${list.map((x) => {
+                    const n = x.k,
+                      e = data[n],
+                      o = own(n),
+                      on = sm ? pk[n] : o;
+                    return html`<div
+                      class=${"row" + (pk[n] ? " pk" : "")}
+                      key=${n}
+                      onClick=${() =>
+                        sm ? togglePick(n) : gm ? tgl(n) : setSel(n)}
                     >
-                  </div>`;
-                })}
-              </div>
-            </div>`,
-        )
-      : html`<div class="empty">Sin resultados.</div>`}
+                      <span
+                        onClick=${(ev) => {
+                          ev.stopPropagation();
+                          sm ? togglePick(n) : setSel(n);
+                        }}
+                        ><${Sprite}
+                          key=${srcs(x, e)[0]}
+                          name=${n}
+                          src=${srcs(x, e)}
+                      /></span>
+                      <div class="nm">
+                        <b class=${o ? "" : "mu"}
+                          ><span class="num"
+                            >#${x.dn
+                              ? String(x.dn).padStart(3, "0")
+                              : String(NUM[x.b]).padStart(4, "0")}</span
+                          >${label(x, pr.forms)}</b
+                        >${/^[hw]/.test(pr.po)
+                          ? html`<small>${fmtM(x)}</small>`
+                          : null}${e && e.games.length
+                          ? html`<small>${gs(e.games).join(", ")}</small>`
+                          : null}
+                      </div>
+                      ${e && e.shiny
+                        ? html`<span class="tg y"><${Shiny} /></span>`
+                        : null}${e && e.alpha
+                        ? html`<span class="tg p">α</span>`
+                        : null}${e && e.mega
+                        ? html`<span class="tg o">M</span>`
+                        : null}${e && e.gmax
+                        ? html`<span class="tg r">G</span>`
+                        : null}${e && e.primal
+                        ? html`<span class="tg o">Ω</span>`
+                        : null}
+                      <span class=${"ck" + (on ? " on" : "")}
+                        >${on ? "✓" : ""}</span
+                      >
+                    </div>`;
+                  })}
+                </div>
+              </div>`,
+          )
+        : html`<div class="empty">Sin resultados.</div>`}
     <${Footer} />
     <div style=${{ height: sm ? 220 : 30 }}></div>
     ${sm
