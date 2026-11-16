@@ -229,13 +229,13 @@ const gameSecs = (g) =>
   GCACHE[g] ||
   (GCACHE[g] = (() => {
     const out = [];
-    (GDEX[GI[g]] || []).forEach(([name, list]) => {
+    (GDEX[GI[g]] || []).forEach(([name, list, first = 1]) => {
       const rows = [];
       list.split(" ").forEach((s, i) => {
         const b = BYSLUG[s];
         if (!b) return;
         [EK[b], ...(FORMS[b] || [])].forEach((x) => {
-          if (x.av.has(g)) rows.push({ ...x, dn: i + 1 });
+          if (x.av.has(g)) rows.push({ ...x, dn: i + first });
         });
       });
       out.push({ name, list: rows });
@@ -691,7 +691,12 @@ function App() {
     ],
     [secs, gm, pr.forms],
   );
-  const chips = secs ? secs.map((s) => s.name) : REGIONS.map((r) => r.name);
+  /* Botones de sección: en la Pokédex del juego solo si el juego tiene más de una Pokédex */
+  const chips = secs
+    ? (GDEX[GI[gm]] || []).length > 1
+      ? secs.map((s) => s.name)
+      : []
+    : REGIONS.map((r) => r.name);
   const sx = sel && EK[sel];
   const togglePick = (n) =>
     setPk((p) => {
@@ -934,20 +939,22 @@ function App() {
       <datalist id="dx-names">
         ${sugg.map((n) => html`<option key=${n} value=${n} />`)}
       </datalist>
-      <div class="chips">
-        <button class=${reg < 0 ? "on" : ""} onClick=${() => setReg(-1)}>
-          Todas</button
-        >${chips.map(
-          (n, i) =>
-            html`<button
-              key=${n}
-              class=${reg === i ? "on" : ""}
-              onClick=${() => setReg(i)}
-            >
-              ${n}
-            </button>`,
-        )}
-      </div>
+      ${chips.length
+        ? html`<div class="chips">
+            <button class=${reg < 0 ? "on" : ""} onClick=${() => setReg(-1)}>
+              Todas</button
+            >${chips.map(
+              (n, i) =>
+                html`<button
+                  key=${n}
+                  class=${reg === i ? "on" : ""}
+                  onClick=${() => setReg(i)}
+                >
+                  ${n}
+                </button>`,
+            )}
+          </div>`
+        : null}
     </header>
     ${vw === "game" && !gm
       ? html`<div class="empty">
@@ -988,7 +995,7 @@ function App() {
                       <div class="nm">
                         <b class=${o ? "" : "mu"}
                           ><span class="num"
-                            >#${x.dn
+                            >#${x.dn != null
                               ? String(x.dn).padStart(3, "0")
                               : String(NUM[x.b]).padStart(4, "0")}</span
                           >${label(x, pr.forms)}</b
