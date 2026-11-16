@@ -66,8 +66,17 @@ const load = () => {
     return {};
   }
 };
-/* Preferencias: vw = vista ('reg' Pokédex regionales, 'game' Pokédex del juego), gm = juego que estás jugando */
-const PDEF = { go: "new", po: "num", forms: true, vw: "reg", gm: "" };
+/* Preferencias: vw = vista ('reg' Pokédex regionales, 'game' Pokédex del juego), gm = juego que estás jugando,
+   fm = solo los que faltan, ox = mostrar la sección "Fuera de la Pokédex" */
+const PDEF = {
+  go: "new",
+  po: "num",
+  forms: true,
+  vw: "reg",
+  gm: "",
+  fm: false,
+  ox: false,
+};
 const loadP = () => {
   try {
     return { ...PDEF, ...(JSON.parse(localStorage.getItem(PKEY)) || {}) };
@@ -153,7 +162,8 @@ const GSORT = {
 /* Entradas: especie base y formas. k = clave de guardado, s = sprite, b = especie base */
 const FAV = {};
 const ENTRIES = REGIONS.map((r) => {
-  const out = [];
+  const out = [],
+    seen = new Set();
   r.pokemon.forEach((n) => {
     const v = VARIANTS[n];
     out.push({ k: n, b: n, s: (v && v[2]) || slug(n), f: 0, def: v && v[0] });
@@ -192,7 +202,66 @@ const MARKS = [
 /* Regresión Primigenia: solo Kyogre y Groudon (Rayquaza tiene Megaevolución, no Primigenio) */
 const PRIMAL = new Set(["Kyogre", "Groudon"]);
 const SHINY_LOCK = new Set(window.DATA.SHINY_LOCK || []);
-const ALPHA_GAMES = ["Leyendas: Arceus", "Leyendas: Z-A"];
+/* Juegos donde existe cada marca (índices de GAMES). Shiny desde Oro/Plata; Mega en X/Y, ROZA, Sol/Luna,
+   USUL, Let's Go y Z-A; Gigamax solo en Espada/Escudo; Alfa en las dos Leyendas; Primigenio en ROZA, Sol/Luna y USUL. */
+const MARK_GAMES = {
+  shiny: [
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+  ],
+  alpha: [19, 21],
+  mega: [12, 13, 14, 15, 16, 21],
+  gmax: [17],
+  primal: [13, 14, 15],
+};
+const MG = {};
+for (const k in MARK_GAMES) MG[k] = new Set(MARK_GAMES[k].map((i) => GAMES[i]));
+/* Megas que llegaron con Leyendas: Z-A y su DLC: solo existen en ese juego */
+const ZA_MEGA = new Set([
+  "Clefable",
+  "Victreebel",
+  "Starmie",
+  "Dragonite",
+  "Meganium",
+  "Feraligatr",
+  "Skarmory",
+  "Froslass",
+  "Emboar",
+  "Excadrill",
+  "Scolipede",
+  "Scrafty",
+  "Eelektross",
+  "Chandelure",
+  "Chesnaught",
+  "Delphox",
+  "Greninja",
+  "Pyroar",
+  "Floette",
+  "Malamar",
+  "Barbaracle",
+  "Dragalge",
+  "Hawlucha",
+  "Zygarde",
+  "Drampa",
+  "Falinks",
+  "Chimecho",
+  "Staraptor",
+  "Heatran",
+  "Darkrai",
+  "Golurk",
+  "Meowstic",
+  "Crabominable",
+  "Golisopod",
+  "Magearna",
+  "Zeraora",
+  "Scovillain",
+  "Glimmora",
+  "Tatsugiri",
+  "Baxcalibur",
+]);
+const ZA = new Set([GAMES[21]]);
+/* ¿Se puede tener esta marca en este juego? Sin juego: en alguno de los juegos donde aparece */
+const canIn = (x, k, g) =>
+  !!x.can[k] && (g ? x.mg[k].has(g) : x.mg[k].size > 0);
 /* Se calcula una sola vez: juegos posibles, marcas posibles y nombre normalizado para buscar */
 const EK = {};
 ENTRIES.forEach((l) =>
@@ -201,19 +270,30 @@ ENTRIES.forEach((l) =>
     const m = M(x);
     x.can = {
       shiny: !SHINY_LOCK.has(x.b),
-      alpha: ALPHA_GAMES.some((g) => x.av.has(g)),
+      alpha: true,
       mega: !x.reg && !!(m && m[3].includes("mega")),
       gmax: !x.reg && GMAX.has(x.b),
       primal: PRIMAL.has(x.b),
     };
+    /* x.form: si la especie tiene esa forma (para las imágenes). x.can: si se puede marcar en algún juego donde aparece */
+    x.form = { ...x.can };
+    x.mg = {};
+    for (const k in MG)
+      x.mg[k] = new Set(
+        [...x.av].filter(
+          (g) =>
+            MG[k].has(g) && (k !== "mega" || !ZA_MEGA.has(x.b) || ZA.has(g)),
+        ),
+      );
+    for (const k in MG) x.can[k] = x.can[k] && x.mg[k].size > 0;
     x.n0 = norm(label(x, false));
     x.n1 = norm(label(x, true));
     EK[x.k] = x;
   }),
 );
 /* Pokédex del juego: secciones con las especies en el orden del juego (datos/pokedex.js).
-   Cada especie va con sus formas disponibles en ese juego. Solo se muestran las Pokédex del juego;
-   lo que se obtiene fuera de ellas sigue en las Pokédex regionales. Los juegos sin Pokédex cargada se agrupan
+   Cada especie va con sus formas disponibles en ese juego. Al final va "Fuera de la Pokédex" con lo que se
+   obtiene en el juego sin estar en sus Pokédex; se puede ocultar y no cuenta en el total. Los juegos sin Pokédex se agrupan
    por región. Se calcula una vez por juego. dn = número en la Pokédex del juego. */
 const GDEX = window.DATA.GDEX || {};
 const BYSLUG = {},
@@ -228,19 +308,27 @@ const GCACHE = {};
 const gameSecs = (g) =>
   GCACHE[g] ||
   (GCACHE[g] = (() => {
-    const out = [];
+    const out = [],
+      seen = new Set();
     (GDEX[GI[g]] || []).forEach(([name, list, first = 1]) => {
       const rows = [];
       list.split(" ").forEach((s, i) => {
         const b = BYSLUG[s];
         if (!b) return;
+        seen.add(b);
         [EK[b], ...(FORMS[b] || [])].forEach((x) => {
           if (x.av.has(g)) rows.push({ ...x, dn: i + first });
         });
       });
       out.push({ name, list: rows });
     });
-    if (out.length) return out;
+    /* Lo que se consigue en el juego pero no está en ninguna de sus Pokédex (Escaneo Isla, eventos, legendarios del DLC…) */
+    if (out.length) {
+      const rows = ENTRIES.flat().filter((x) => !seen.has(x.b) && x.av.has(g));
+      if (rows.length)
+        out.push({ name: "Fuera de la Pokédex", list: rows, extra: true });
+      return out;
+    }
     REGIONS.forEach((r, i) => {
       const rows = ENTRIES[i].filter((x) => x.av.has(g));
       if (rows.length) out.push({ name: r.name, list: rows });
@@ -325,9 +413,9 @@ const megaImgs = (x, e) => {
 };
 const srcs = (x, e) => {
   const list = [];
-  if (e && e.gmax && x.can.gmax) list.push(slug(x.b) + "-gigantamax");
-  if (e && e.primal && x.can.primal) list.push(slug(x.b) + "-primal");
-  if (e && e.mega && x.can.mega) list.push(...megaImgs(x, e));
+  if (e && e.gmax && x.form.gmax) list.push(slug(x.b) + "-gigantamax");
+  if (e && e.primal && x.form.primal) list.push(slug(x.b) + "-primal");
+  if (e && e.mega && x.form.mega) list.push(...megaImgs(x, e));
   list.push(x.s);
   return urls(list, e);
 };
@@ -336,14 +424,14 @@ const views = (x, e) => {
   const b = slug(x.b),
     v = [["Normal", [x.s]]],
     o = MEGA2[x.b];
-  if (x.can.mega && o) {
+  if (x.form.mega && o) {
     o.forEach(([k, t, s]) => {
       if (e[k]) v.push([t, [b + "-" + s]]);
     });
     if (e.mega && !o.some(([k]) => e[k])) v.push(["Mega", [b + "-" + o[0][2]]]);
-  } else if (x.can.mega && e.mega) v.push(["Mega", megaImgs(x, e)]);
-  if (x.can.gmax && e.gmax) v.push(["Gigamax", [b + "-gigantamax"]]);
-  if (x.can.primal && e.primal) v.push(["Primigenio", [b + "-primal"]]);
+  } else if (x.form.mega && e.mega) v.push(["Mega", megaImgs(x, e)]);
+  if (x.form.gmax && e.gmax) v.push(["Gigamax", [b + "-gigantamax"]]);
+  if (x.form.primal && e.primal) v.push(["Primigenio", [b + "-primal"]]);
   return v.map(([t, list]) => [t, urls(list, e)]);
 };
 function Sprite({ name, src, cls }) {
@@ -380,7 +468,8 @@ function Sprite({ name, src, cls }) {
         />`
       : html`<div class=${"sp " + (cls || "")}></div>`;
 }
-function Sheet({ x, title, e, av, upd, del, close, gs }) {
+/* gm: juego que estás jugando. Si hay uno, solo se muestran las marcas que existen en ese juego */
+function Sheet({ x, title, e, av, upd, del, close, gs, gm }) {
   const name = x.k;
   const [g, setG] = useState("");
   const [conf, setConf] = useState(false);
@@ -398,7 +487,7 @@ function Sheet({ x, title, e, av, upd, del, close, gs }) {
       ${t}
     </button>`;
   /* Cada Mega se marca aparte; "mega" queda encendido si tienes cualquiera */
-  const mo = x.can.mega && MEGA2[x.b];
+  const mo = x.form.mega && MEGA2[x.b];
   const tgm = (k, t) =>
     html`<button
       key=${k}
@@ -479,8 +568,10 @@ function Sheet({ x, title, e, av, upd, del, close, gs }) {
       <div class="tgl">
         ${MARKS.map(([k, t]) =>
           k === "mega" && two
-            ? mo.map(([m, t]) => tgm(m, "M " + t))
-            : x.can[k] || e[k]
+            ? canIn(x, k, gm) || mo.some(([m]) => e[m])
+              ? mo.map(([m, t]) => tgm(m, "M " + t))
+              : null
+            : canIn(x, k, gm) || e[k]
               ? tg(k, t)
               : null,
         )}
@@ -562,6 +653,23 @@ function App() {
   const [fc, setFc] = useState("");
   const [ft, setFt] = useState([]);
   const [fo, setFo] = useState(false);
+  const [fx, setFx] = useState(false);
+  /* Los controles se esconden al bajar por la lista y vuelven apenas subes un poco (o al tocar arriba) */
+  const [hide, setHide] = useState(false);
+  useEffect(() => {
+    let last = window.scrollY;
+    const on = () => {
+      const y = window.scrollY,
+        d = y - last;
+      if (Math.abs(d) < 8) return;
+      const typing =
+        document.activeElement && document.activeElement.tagName === "INPUT";
+      setHide(d > 0 && y > 160 && !typing);
+      last = y;
+    };
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
+  }, []);
   const [user, setUser] = useState(null);
   useEffect(
     () =>
@@ -617,10 +725,12 @@ function App() {
   const cnt = base.map((l) => l.filter((x) => !x.f));
   const secs = gv ? gameSecs(gm) : null;
   /* En la Pokédex del juego una especie puede salir en dos secciones: para el total se cuenta una vez */
+  /* "Fuera de la Pokédex" no cuenta en el total, igual que en el juego */
   const scope = secs
     ? [
         ...new Map(
           secs
+            .filter((s) => !s.extra)
             .flatMap((s) => s.list)
             .filter((x) => !x.f)
             .map((x) => [x.k, x]),
@@ -638,19 +748,25 @@ function App() {
       : pr.po === "desc"
         ? (a, b) => b.o - a.o
         : (a, b) => a.o - b.o;
+  /* fm: mostrar solo los que te faltan (en el juego elegido, o en la Living Dex si no hay juego) */
   const pass = (x) =>
     (pr.forms || !x.f || fc === "reg") &&
     passF(x, fc, ft) &&
-    (!nq || (pr.forms ? x.n1 : x.n0).includes(nq));
+    (!nq || (pr.forms ? x.n1 : x.n0).includes(nq)) &&
+    (!pr.fm || !own(x.k));
   let groups = secs
     ? secs.map((s, i) => {
-        const l = s.list.filter(pass);
+        const l = s.list.filter(pass),
+          sl =
+            pr.po === "az" ? l.sort(cmp) : pr.po === "desc" ? l.reverse() : l;
+        /* La sección de fuera se puede ocultar: queda el título con su botón */
         return {
           r: { name: s.name },
           i,
           all: s.list.filter((x) => !x.f),
-          list:
-            pr.po === "az" ? l.sort(cmp) : pr.po === "desc" ? l.reverse() : l,
+          extra: s.extra,
+          n: l.length,
+          list: s.extra && !pr.ox ? [] : sl,
         };
       })
     : REGIONS.map((r, i) => ({
@@ -659,8 +775,14 @@ function App() {
         all: cnt[i],
         list: ENTRIES[i].filter((x) => inG(x) && pass(x)).sort(cmp),
       }));
-  groups = groups.filter((g) => (reg < 0 || g.i === reg) && g.list.length);
-  if (pr.po === "desc") groups = groups.slice().reverse();
+  groups = groups.filter(
+    (g) => (reg < 0 || g.i === reg) && (g.list.length || (g.extra && g.n)),
+  );
+  if (pr.po === "desc")
+    groups = [
+      ...groups.filter((g) => !g.extra).reverse(),
+      ...groups.filter((g) => g.extra),
+    ];
   if (/^[hw][ud]$/.test(pr.po)) {
     const k = pr.po[0] === "h" ? 0 : 1,
       s = pr.po[1] === "u" ? 1 : -1,
@@ -694,7 +816,7 @@ function App() {
   /* Botones de sección: en la Pokédex del juego solo si el juego tiene más de una Pokédex */
   const chips = secs
     ? (GDEX[GI[gm]] || []).length > 1
-      ? secs.map((s) => s.name)
+      ? secs.filter((s) => !s.extra).map((s) => s.name)
       : []
     : REGIONS.map((r) => r.name);
   const sx = sel && EK[sel];
@@ -726,15 +848,21 @@ function App() {
   };
   const toggleMark = (k) =>
     setBm((a) => (a.includes(k) ? a.filter((z) => z !== k) : [...a, k]));
+  /* Marcas que se ofrecen: solo las que puede tener al menos uno de los seleccionados (en el juego elegido, si hay) */
+  const bmarks = MARKS.filter(([k]) =>
+    pickedEntries.some((x) => canIn(x, k, bg)),
+  );
+  const bms = bm.filter((k) => bmarks.some(([m]) => m === k));
   /* Añade o quita el juego elegido y las marcas elegidas en los seleccionados.
      Solo se aplica lo que es posible en cada Pokémon (un juego donde aparece, una marca que puede tener). */
   const applyBulk = (add) => {
-    const g = bg;
+    const g = bg,
+      bm = bms;
     if (!g && !bm.length) return;
     const plan = pickedEntries.map((x) => ({
       k: x.k,
       g: !!g && x.av.has(g),
-      m: add ? bm.filter((m) => x.can[m]) : bm,
+      m: add ? bm.filter((m) => canIn(x, m, g)) : bm,
     }));
     const done = plan.filter((p) => p.g || p.m.length).length,
       partial = add
@@ -788,7 +916,7 @@ function App() {
   };
 
   return html`<div>
-    <header>
+    <header class=${hide && !fx ? "hide" : ""}>
       <h1>Dexter</h1>
       <div class="acct">
         ${user
@@ -822,11 +950,7 @@ function App() {
           Pokédex del juego
         </button>
       </div>
-      <select
-        style=${{ marginTop: 8 }}
-        value=${gm}
-        onChange=${(e) => setGm(e.target.value)}
-      >
+      <select class="gsel" value=${gm} onChange=${(e) => setGm(e.target.value)}>
         <option value="">
           ${vw === "game"
             ? "Elige el juego que estás jugando…"
@@ -837,90 +961,103 @@ function App() {
         )}
       </select>
       <div class="opts">
-        <select
-          aria-label="Orden de los juegos"
-          value=${pr.go}
-          onChange=${(e) => sp("go", e.target.value)}
-        >
-          <option value="new">Juegos: más nuevo primero</option>
-          <option value="old">Juegos: más antiguo primero</option>
-          <option value="az">Juegos: A → Z</option>
-        </select>
-        <select
-          aria-label="Orden de los Pokémon"
-          value=${pr.po}
-          onChange=${(e) => sp("po", e.target.value)}
-        >
-          <option value="num">Pokémon: nº ascendente</option>
-          <option value="desc">Pokémon: nº descendente</option>
-          <option value="az">Pokémon: A → Z</option>
-          <option value="hu">Pokémon: altura ↑</option>
-          <option value="hd">Pokémon: altura ↓</option>
-          <option value="wu">Pokémon: peso ↑</option>
-          <option value="wd">Pokémon: peso ↓</option>
-        </select>
         <button
-          style=${{ flex: "0 0 auto" }}
+          class=${fx || fc || ft.length ? "on" : ""}
+          onClick=${() => setFx(!fx)}
+        >
+          ${fx ? "▴" : "▾"}
+          Filtros${fc || ft.length ? " · " + ((fc ? 1 : 0) + ft.length) : ""}
+        </button>
+        <button class=${pr.fm ? "on" : ""} onClick=${() => sp("fm", !pr.fm)}>
+          Solo me faltan
+        </button>
+        <button
           class=${pr.forms ? "on" : ""}
           onClick=${() => sp("forms", !pr.forms)}
         >
           Formas
         </button>
-      </div>
-      <div class="opts">
-        <select
-          aria-label="Categoría"
-          value=${fc}
-          onChange=${(e) => setFc(e.target.value)}
-        >
-          <option value="">Categoría: todas</option>
-          ${CATS.map(
-            ([k, n]) => html`<option key=${k} value=${k}>${n}</option>`,
-          )}
-        </select>
-        <button class=${ft.length ? "on" : ""} onClick=${() => setFo(!fo)}>
-          Tipos${ft.length ? " · " + ft.join("/") : ""}
-        </button>
-        ${fc || ft.length
-          ? html`<button
-              onClick=${() => {
-                setFc("");
-                setFt([]);
-              }}
-            >
-              Limpiar
-            </button>`
-          : null}
         <button class=${sm ? "on" : ""} onClick=${() => openSel(!sm)}>
           Seleccionar
         </button>
       </div>
-      ${fo
-        ? html`<div class="chips tp">
-            ${TYPES.map(
-              (t) =>
-                html`<button
-                  key=${t}
-                  class=${ft.includes(t) ? "on" : ""}
-                  onClick=${() =>
-                    setFt((a) =>
-                      a.includes(t)
-                        ? a.filter((z) => z !== t)
-                        : [...a, t].slice(-2),
-                    )}
-                >
-                  ${t}
-                </button>`,
-            )}
-          </div>`
+      ${fx
+        ? html`<div class="opts">
+              <select
+                aria-label="Orden de los juegos"
+                value=${pr.go}
+                onChange=${(e) => sp("go", e.target.value)}
+              >
+                <option value="new">Juegos: más nuevo primero</option>
+                <option value="old">Juegos: más antiguo primero</option>
+                <option value="az">Juegos: A → Z</option>
+              </select>
+              <select
+                aria-label="Orden de los Pokémon"
+                value=${pr.po}
+                onChange=${(e) => sp("po", e.target.value)}
+              >
+                <option value="num">Pokémon: nº ascendente</option>
+                <option value="desc">Pokémon: nº descendente</option>
+                <option value="az">Pokémon: A → Z</option>
+                <option value="hu">Pokémon: altura ↑</option>
+                <option value="hd">Pokémon: altura ↓</option>
+                <option value="wu">Pokémon: peso ↑</option>
+                <option value="wd">Pokémon: peso ↓</option>
+              </select>
+            </div>
+            <div class="opts">
+              <select
+                aria-label="Categoría"
+                value=${fc}
+                onChange=${(e) => setFc(e.target.value)}
+              >
+                <option value="">Categoría: todas</option>
+                ${CATS.map(
+                  ([k, n]) => html`<option key=${k} value=${k}>${n}</option>`,
+                )}
+              </select>
+              <button
+                class=${ft.length ? "on" : ""}
+                onClick=${() => setFo(!fo)}
+              >
+                Tipos${ft.length ? " · " + ft.join("/") : ""}
+              </button>
+              ${fc || ft.length
+                ? html`<button
+                    onClick=${() => {
+                      setFc("");
+                      setFt([]);
+                    }}
+                  >
+                    Limpiar
+                  </button>`
+                : null}
+            </div>
+            ${fo
+              ? html`<div class="chips tp">
+                  ${TYPES.map(
+                    (t) =>
+                      html`<button
+                        key=${t}
+                        class=${ft.includes(t) ? "on" : ""}
+                        onClick=${() =>
+                          setFt((a) =>
+                            a.includes(t)
+                              ? a.filter((z) => z !== t)
+                              : [...a, t].slice(-2),
+                          )}
+                      >
+                        ${t}
+                      </button>`,
+                  )}
+                </div>`
+              : null}`
         : null}
       ${gm
         ? html`<div class="hint">
             Toca un Pokémon para marcarlo en este juego; toca su imagen para ver
-            el
-            detalle.${gv
-              ? " Lo que marcas aquí también cuenta en tu Living Dex."
-              : ""}
+            el detalle.
           </div>`
         : null}
       <input
@@ -962,14 +1099,29 @@ function App() {
         </div>`
       : groups.length
         ? groups.map(
-            ({ r, all, list }) =>
+            ({ r, all, list, extra }) =>
               html`<div key=${r.name}>
                 <h2>
-                  <span>${r.name}</span
+                  <span
+                    >${r.name}${extra
+                      ? html` <button
+                          class="ox"
+                          onClick=${() => sp("ox", !pr.ox)}
+                        >
+                          ${pr.ox ? "Ocultar" : "Mostrar"}
+                        </button>`
+                      : null}</span
                   ><span
                     >${all.filter((x) => own(x.k)).length}/${all.length}</span
                   >
                 </h2>
+                ${extra && !pr.ox
+                  ? html`<p class="hint ox-h">
+                      Pokémon que se consiguen en este juego sin estar en su
+                      Pokédex (eventos, Escaneo Isla, legendarios del DLC…). No
+                      cuentan en el total.
+                    </p>`
+                  : null}
                 <div class="list">
                   ${list.map((x) => {
                     const n = x.k,
@@ -1043,26 +1195,34 @@ function App() {
               )}
             </select>
           </div>
-          <div class="bk-row bk-marks">
-            ${MARKS.map(
-              ([k, t]) =>
-                html`<button
-                  key=${k}
-                  class=${bm.includes(k) ? "on" : ""}
-                  onClick=${() => toggleMark(k)}
-                >
-                  ${t}
-                </button>`,
-            )}
-          </div>
+          ${bmarks.length
+            ? html`<div class="bk-row bk-marks">
+                ${bmarks.map(
+                  ([k, t]) =>
+                    html`<button
+                      key=${k}
+                      class=${bms.includes(k) ? "on" : ""}
+                      onClick=${() => toggleMark(k)}
+                    >
+                      ${t}
+                    </button>`,
+                )}
+              </div>`
+            : html`<div class="hint">
+                ${picked.length
+                  ? "Ninguna marca especial es posible en los seleccionados" +
+                    (bg ? " en " + bg : "") +
+                    "."
+                  : "Elige Pokémon para ver qué marcas puedes añadir."}
+              </div>`}
           <div class="bk-row">
             <button
-              disabled=${!(bg || bm.length) || !picked.length}
+              disabled=${!(bg || bms.length) || !picked.length}
               onClick=${() => applyBulk(true)}
             >
               Añadir</button
             ><button
-              disabled=${!(bg || bm.length) || !picked.length}
+              disabled=${!(bg || bms.length) || !picked.length}
               onClick=${() => applyBulk(false)}
             >
               Quitar
@@ -1082,6 +1242,7 @@ function App() {
           del=${del}
           close=${() => setSel(null)}
           gs=${gs}
+          gm=${gm}
         />`
       : null}
   </div>`;

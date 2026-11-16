@@ -68,6 +68,12 @@ header {
   z-index: 5;
   background: var(--bg);
   padding: 12px 14px 8px;
+  transition: transform 0.25s ease;
+}
+/* Al bajar por la lista los controles se esconden; al subir un poco vuelven */
+header.hide {
+  transform: translateY(calc(-100% - 2px));
+  box-shadow: none;
 }
 h1 {
   margin: 0 0 8px;
@@ -512,4 +518,28 @@ footer small {
   display: block;
   margin-top: 12px;
   font-size: 12px;
+}
+
+/* Sección "Fuera de la Pokédex": botón para mostrarla u ocultarla */
+h2 .ox {
+  margin-left: 8px;
+  border: 1px solid var(--ln);
+  background: var(--card);
+  color: var(--tx);
+  border-radius: 10px;
+  padding: 2px 9px;
+  font-size: 12px;
+  text-transform: none;
+  vertical-align: 1px;
+}
+.ox-h {
+  margin: -2px 16px 8px;
+}
+
+/* Selector "Jugando: …": mismo tamaño que los demás controles */
+.gsel {
+  margin-top: 8px;
+  padding: 7px 8px;
+  font-size: 13px;
+  border-radius: 9px;
 }
