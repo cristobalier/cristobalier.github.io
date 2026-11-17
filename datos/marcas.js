@@ -9,7 +9,6 @@
 (function (D) {
   D.SHINY_LOCK = [
     "Victini",
-    "Keldeo",
     "Hoopa",
     "Type: Null",
     "Silvally",

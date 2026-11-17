@@ -221,7 +221,13 @@
         ["Extragrande", "super"],
       ],
     ],
-    Zygarde: ["50%", [["10%", "10"]]],
+    Zygarde: [
+      "50%",
+      [
+        ["10%", "10"],
+        ["100%", "complete", [14, 15, 21]],
+      ],
+    ],
     Oricorio: [
       "Apasionado",
       [

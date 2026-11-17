@@ -374,6 +374,12 @@
   const EXTRA = {
     Meloetta: [20], // Biodomo de la Academia Arándano (El Disco Índigo)
     Perrserker: [20], // evolucionando el Meowth de Galar que regala un profesor
+    Melmetal: [17], // se transfiere desde HOME y puede recibir el Factor Gigamax
   };
   for (const n in EXTRA) EXTRA[n].forEach((i) => add(n, i));
+  /* Gigamax que faltaban en disponibilidad.js */
+  D.GMAX = D.GMAX || [];
+  ["Melmetal"].forEach((n) => {
+    if (!D.GMAX.includes(n)) D.GMAX.push(n);
+  });
 })(window.DATA);
