@@ -25,8 +25,6 @@
     "Glastrier",
     "Spectrier",
     "Calyrex",
-    "Eternatus",
-    "Enamorus",
     "Walking Wake",
     "Iron Leaves",
     "Okidogi",
