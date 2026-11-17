@@ -543,3 +543,41 @@ h2 .ox {
   font-size: 13px;
   border-radius: 9px;
 }
+
+/* Selector "Qué mostrar": se enciende cuando filtra */
+.opts select.on {
+  background: var(--ac);
+  color: #fff;
+  border-color: var(--ac);
+}
+
+/* Ficha: Cerrar (grande, verde) y Liberar (chico, rojo). Liberar pide confirmación */
+.sbtn {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.sbtn button {
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 15px;
+  margin: 0;
+}
+.sbtn .ok {
+  flex: 2;
+  border: 0;
+  background: #2fa36b;
+  color: #fff;
+  font-weight: 600;
+}
+.sbtn .rel {
+  flex: 1;
+  width: auto;
+  background: none;
+  color: #e5484d;
+  border: 1px solid #e5484d;
+}
+.sbtn .rel.on {
+  background: #e5484d;
+  color: #fff;
+}

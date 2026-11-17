@@ -66,16 +66,17 @@ const load = () => {
     return {};
   }
 };
-/* Preferencias: vw = vista ('reg' Pokédex regionales, 'game' Pokédex del juego), gm = juego que estás jugando,
-   fm = solo los que faltan, ox = mostrar la sección "Fuera de la Pokédex" */
+/* Preferencias: vw = vista ('reg' Pokédex regionales, 'game' Pokédex del juego, 'esp' dex especiales), gm = juego que estás jugando,
+   fm = qué mostrar ('' todos, 'all' solo los que faltan, 'shiny' los que faltan en shiny), ox = mostrar "Fuera de la Pokédex", sd = dex especial elegida */
 const PDEF = {
   go: "new",
   po: "num",
   forms: true,
   vw: "reg",
   gm: "",
-  fm: false,
+  fm: "",
   ox: false,
+  sd: "mega",
 };
 const loadP = () => {
   try {
@@ -109,6 +110,7 @@ const blank = {
   megaZ: false,
   gmax: false,
   primal: false,
+  unown: [],
 };
 /* Campos de las especies con dos Megaevoluciones (ver MEGA2 más abajo) */
 const MKEYS = ["megaX", "megaY", "megaN", "megaZ"];
@@ -119,6 +121,7 @@ const isEmpty = (x) =>
   !x.mega &&
   !x.gmax &&
   !x.primal &&
+  !(x.unown && x.unown.length) &&
   !MKEYS.some((k) => x[k]);
 /* Junta dos progresos sin perder nada: une los juegos y suma las marcas */
 const merge = (a, b) => {
@@ -137,6 +140,7 @@ const merge = (a, b) => {
       mega: x.mega || y.mega,
       gmax: x.gmax || y.gmax,
       primal: !!(x.primal || y.primal),
+      unown: [...new Set([...(x.unown || []), ...(y.unown || [])])],
     };
     MKEYS.forEach((m) => {
       r[k][m] = !!(x[m] || y[m]);
@@ -411,16 +415,50 @@ const megaImgs = (x, e) => {
   const f = o.find(([k]) => e[k]) || o[0];
   return [b + "-" + f[2]];
 };
+/* Gigamax: algunas especies tienen el nombre de la imagen distinto (Urshifu tiene dos estilos, Toxtricity dos formas) */
+const GMAX_IMG = {
+  Urshifu: [
+    "urshifu-single-strike-gigantamax",
+    "urshifu-rapid-strike-gigantamax",
+  ],
+  Toxtricity: ["toxtricity-gigantamax", "toxtricity-amped-gigantamax"],
+};
+const gmaxImgs = (x) => GMAX_IMG[x.b] || [slug(x.b) + "-gigantamax"];
+/* Unown: imagen de cada letra (A es la forma normal) */
+const UNOWN = "ABCDEFGHIJKLMNOPQRSTUVWXYZ!?".split("");
+const PSPR =
+  "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/";
+/* PokémonDB nombra cada letra unown-a … unown-z, unown-em (!) y unown-qm (?).
+   No se usa la imagen genérica de respaldo: si una letra no carga, se ve la letra en vez de la A */
+const unownImg = (l, sh) => {
+  const d = l === "!" ? "em" : l === "?" ? "qm" : l.toLowerCase(),
+    p = l === "!" ? "exclamation" : l === "?" ? "question" : l.toLowerCase();
+  return [
+    IMG + (sh ? "shiny/" : "normal/") + "unown-" + d + ".png",
+    "https://img.pokemondb.net/sprites/legends-arceus/" +
+      (sh ? "shiny/" : "normal/") +
+      "unown-" +
+      d +
+      ".png",
+    PSPR + (sh ? "shiny/" : "") + "201" + (l === "A" ? "" : "-" + p) + ".png",
+  ];
+};
 const srcs = (x, e) => {
   const list = [];
-  if (e && e.gmax && x.form.gmax) list.push(slug(x.b) + "-gigantamax");
+  if (e && e.gmax && x.form.gmax) list.push(...gmaxImgs(x));
   if (e && e.primal && x.form.primal) list.push(slug(x.b) + "-primal");
   if (e && e.mega && x.form.mega) list.push(...megaImgs(x, e));
   list.push(x.s);
   return urls(list, e);
 };
-/* En la ficha: una imagen por cada versión que tienes marcada (normal, cada Mega, Gigamax) */
-const views = (x, e) => {
+/* En la ficha: una imagen por cada versión que tienes marcada (normal, cada Mega, Gigamax, cada letra de Unown) */
+const views = (x, e, lt) => {
+  if (x.b === "Unown" && lt) return [[lt, unownImg(lt, e.shiny)]];
+  if (x.b === "Unown" && e.unown && e.unown.length)
+    return UNOWN.filter((l) => e.unown.includes(l)).map((l) => [
+      l,
+      unownImg(l, e.shiny),
+    ]);
   const b = slug(x.b),
     v = [["Normal", [x.s]]],
     o = MEGA2[x.b];
@@ -430,10 +468,118 @@ const views = (x, e) => {
     });
     if (e.mega && !o.some(([k]) => e[k])) v.push(["Mega", [b + "-" + o[0][2]]]);
   } else if (x.form.mega && e.mega) v.push(["Mega", megaImgs(x, e)]);
-  if (x.form.gmax && e.gmax) v.push(["Gigamax", [b + "-gigantamax"]]);
+  if (x.form.gmax && e.gmax) v.push(["Gigamax", gmaxImgs(x)]);
   if (x.form.primal && e.primal) v.push(["Primigenio", [b + "-primal"]]);
   return v.map(([t, list]) => [t, urls(list, e)]);
 };
+/* Dex especiales: una fila por cada versión que se puede marcar.
+   k = clave de la fila, x = especie, m = marca (para saber en qué juegos existe), name = nombre a mostrar,
+   img = imágenes a probar, on(e) = si la tienes, set(e) = la marca o desmarca en el progreso de la especie */
+const SD = [
+  ["mega", "Megadex"],
+  ["gmax", "Gigamax dex"],
+  ["alpha", "Alfa dex"],
+  ["unown", "Unown dex"],
+];
+const SPECIAL = (() => {
+  const all = ENTRIES.flat(),
+    base = all.filter((x) => !x.f),
+    cat = (x) => (M(x) || [0, 0, [], []])[3];
+  const tog = (k) => (e) => {
+    e[k] = !e[k];
+  };
+  const mega = [];
+  base.forEach((x) => {
+    const b = slug(x.b),
+      o = MEGA2[x.b];
+    if (x.form.mega) {
+      if (o)
+        o.forEach(([k, t, s]) =>
+          mega.push({
+            k: x.k + "|" + k,
+            x,
+            m: "mega",
+            name: t.replace("Mega", "Mega " + x.b),
+            img: urls([b + "-" + s]),
+            on: (e) => !!e[k],
+            set: (e) => {
+              e[k] = !e[k];
+              e.mega = o.some(([m]) => e[m]);
+            },
+          }),
+        );
+      else
+        mega.push({
+          k: x.k + "|mega",
+          x,
+          m: "mega",
+          name: "Mega " + x.b,
+          img: urls(megaImgs(x, {})),
+          on: (e) => !!e.mega,
+          set: tog("mega"),
+        });
+    }
+    /* La Regresión Primigenia va en la Megadex, junto a las Megas */
+    if (x.form.primal)
+      mega.push({
+        k: x.k + "|primal",
+        x,
+        m: "primal",
+        name: x.b + " Primigenio",
+        img: urls([b + "-primal"]),
+        on: (e) => !!e.primal,
+        set: tog("primal"),
+      });
+  });
+  const gmax = base
+    .filter((x) => x.form.gmax)
+    .map((x) => ({
+      k: x.k + "|gmax",
+      x,
+      m: "gmax",
+      name: x.b + " Gigamax",
+      img: urls(gmaxImgs(x)),
+      on: (e) => !!e.gmax,
+      set: tog("gmax"),
+    }));
+  /* Alfas: especies y formas regionales de las Leyendas, sin legendarios ni singulares (no aparecen como alfa) */
+  const alpha = all
+    .filter(
+      (x) =>
+        (!x.f || x.reg) &&
+        x.mg.alpha.size &&
+        !cat(x).some((c) => c === "leg" || c === "sing"),
+    )
+    .map((x) => ({
+      k: x.k + "|alpha",
+      x,
+      m: "alpha",
+      name: x.k + " alfa",
+      img: urls([x.s]),
+      on: (e) => !!e.alpha,
+      set: tog("alpha"),
+    }));
+  /* Unown: las 28 formas (A–Z, ! y ?). Se guardan en la lista "unown" de la especie */
+  const u = EK["Unown"],
+    unown = !u
+      ? []
+      : UNOWN.map((l) => {
+          return {
+            k: "Unown|" + l,
+            x: u,
+            l,
+            m: "unown",
+            name: "Unown " + l,
+            img: unownImg(l),
+            on: (e) => (e.unown || []).includes(l),
+            set: (e) => {
+              const v = e.unown || [];
+              e.unown = v.includes(l) ? v.filter((z) => z !== l) : [...v, l];
+            },
+          };
+        });
+  return { mega, gmax, alpha, unown };
+})();
 function Sprite({ name, src, cls }) {
   const [i, setI] = useState(0);
   const [api, setApi] = useState({});
@@ -469,7 +615,7 @@ function Sprite({ name, src, cls }) {
       : html`<div class=${"sp " + (cls || "")}></div>`;
 }
 /* gm: juego que estás jugando. Si hay uno, solo se muestran las marcas que existen en ese juego */
-function Sheet({ x, title, e, av, upd, del, close, gs, gm }) {
+function Sheet({ x, title, e, av, upd, del, close, gs, gm, lt }) {
   const name = x.k;
   const [g, setG] = useState("");
   const [conf, setConf] = useState(false);
@@ -501,7 +647,7 @@ function Sheet({ x, title, e, av, upd, del, close, gs, gm }) {
       ${t}
     </button>`;
   const two = !!mo;
-  const vw = views(x, e);
+  const vw = views(x, e, lt);
   return html`<div class="ov" onClick=${close}>
     <div class="sh" onClick=${(ev) => ev.stopPropagation()}>
       <div class="hd">
@@ -517,7 +663,9 @@ function Sheet({ x, title, e, av, upd, del, close, gs, gm }) {
               )}
             </div>`}
         <h3>
-          <span class="num">#${String(NUM[x.b]).padStart(4, "0")}</span>${title}
+          <span class="num">#${String(NUM[x.b]).padStart(4, "0")}</span>${lt
+            ? "Unown " + lt
+            : title}
         </h3>
       </div>
       ${opts.length
@@ -576,22 +724,51 @@ function Sheet({ x, title, e, av, upd, del, close, gs, gm }) {
               : null,
         )}
       </div>
-      ${has
-        ? conf
-          ? html`<button
-              class="rel"
-              onClick=${() => {
-                del(name);
-                close();
-              }}
+      ${lt
+        ? html`<div class="tgl">
+            <button
+              class=${e.unown.includes(lt) ? "on" : ""}
+              onClick=${() =>
+                upd(name, (y) => {
+                  const v = y.unown || [];
+                  y.unown = v.includes(lt)
+                    ? v.filter((z) => z !== lt)
+                    : [...v, lt];
+                })}
             >
-              Confirmar: liberar a ${title}
-            </button>`
-          : html`<button class="rel" onClick=${() => setConf(true)}>
-              Liberar Pokémon
-            </button>`
+              Tengo Unown ${lt}
+            </button>
+          </div>`
         : null}
-      <button class="cl" onClick=${close}>Cerrar</button>
+      ${x.b === "Unown" && e.unown.length
+        ? html`<p class="mu">
+            Unown dex: ${e.unown.length} de ${UNOWN.length} formas
+            (${UNOWN.filter((l) => e.unown.includes(l)).join(" ")})
+          </p>`
+        : null}
+      <div class="sbtn">
+        <button class="ok" onClick=${close}>Cerrar</button> ${has
+          ? conf
+            ? html`<button
+                class="rel on"
+                onClick=${() => {
+                  del(name);
+                  close();
+                }}
+              >
+                Sí, liberar
+              </button>`
+            : html`<button class="rel" onClick=${() => setConf(true)}>
+                Liberar
+              </button>`
+          : null}
+      </div>
+      ${conf
+        ? html`<p class="hint">
+            Se borrará todo lo marcado de ${title}. Toca "Sí, liberar" para
+            confirmar o "Cerrar" para dejarlo.
+          </p>`
+        : null}
     </div>
   </div>`;
 }
@@ -642,6 +819,7 @@ function App() {
   const [q, setQ] = useState("");
   const [reg, setReg] = useState(-1);
   const [sel, setSel] = useState(null);
+  const [lt, setLt] = useState(null);
   const [pr, setPr] = useState(loadP);
   const sp = (k, v) => setPr((p) => ({ ...p, [k]: v }));
   /* El juego elegido y la vista se recuerdan para la próxima vez */
@@ -724,21 +902,33 @@ function App() {
   );
   const cnt = base.map((l) => l.filter((x) => !x.f));
   const secs = gv ? gameSecs(gm) : null;
+  /* fm: '' todos, 'all' solo los que faltan, 'shiny' los que faltan en shiny (las versiones antiguas guardaban true) */
+  const fm = pr.fm === true ? "all" : pr.fm || "",
+    fs = fm === "shiny";
+  const inS = (x) => !fs || x.can.shiny;
+  const got = (x) => (fs ? !!(data[x.k] && data[x.k].shiny) : own(x.k));
   /* En la Pokédex del juego una especie puede salir en dos secciones: para el total se cuenta una vez */
   /* "Fuera de la Pokédex" no cuenta en el total, igual que en el juego */
-  const scope = secs
-    ? [
-        ...new Map(
-          secs
-            .filter((s) => !s.extra)
-            .flatMap((s) => s.list)
-            .filter((x) => !x.f)
-            .map((x) => [x.k, x]),
-        ).values(),
-      ]
-    : cnt.flat();
-  const total = scope.length;
-  const owned = scope.filter((x) => own(x.k)).length;
+  const scope = (
+    secs
+      ? [
+          ...new Map(
+            secs
+              .filter((s) => !s.extra)
+              .flatMap((s) => s.list)
+              .filter((x) => !x.f)
+              .map((x) => [x.k, x]),
+          ).values(),
+        ]
+      : cnt.flat()
+  ).filter(inS);
+  /* Dex especiales: todas las filas de la dex elegida (sin filtro de juego ni de "me faltan") */
+  const esp = vw === "esp",
+    sd = SPECIAL[pr.sd] ? pr.sd : "mega";
+  const son = (r) => !!data[r.x.k] && r.on({ ...blank, ...data[r.x.k] });
+  const srows = esp ? SPECIAL[sd] : [];
+  const total = esp ? srows.length : scope.length;
+  const owned = esp ? srows.filter(son).length : scope.filter(got).length;
   /* La búsqueda usa un valor diferido para que escribir no se trabe */
   const dq = useDeferredValue(q);
   const nq = norm(dq);
@@ -748,12 +938,15 @@ function App() {
       : pr.po === "desc"
         ? (a, b) => b.o - a.o
         : (a, b) => a.o - b.o;
-  /* fm: mostrar solo los que te faltan (en el juego elegido, o en la Living Dex si no hay juego) */
   const pass = (x) =>
     (pr.forms || !x.f || fc === "reg") &&
     passF(x, fc, ft) &&
     (!nq || (pr.forms ? x.n1 : x.n0).includes(nq)) &&
-    (!pr.fm || !own(x.k));
+    (!fm || (fs ? x.can.shiny && !got(x) : !own(x.k)));
+  let slist = srows.filter((r) => !nq || norm(r.name).includes(nq));
+  if (pr.po === "az")
+    slist = [...slist].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  else if (pr.po === "desc") slist = [...slist].reverse();
   let groups = secs
     ? secs.map((s, i) => {
         const l = s.list.filter(pass),
@@ -804,14 +997,17 @@ function App() {
   }
   /* Sugerencias del buscador: los nombres de lo que estás viendo (región o juego) */
   const sugg = useMemo(
-    () => [
-      ...new Set(
-        (secs ? secs.flatMap((s) => s.list) : ENTRIES.flat().filter(inG))
-          .filter((x) => pr.forms || !x.f)
-          .map((x) => label(x, pr.forms)),
-      ),
-    ],
-    [secs, gm, pr.forms],
+    () =>
+      esp
+        ? SPECIAL[sd].map((r) => r.name)
+        : [
+            ...new Set(
+              (secs ? secs.flatMap((s) => s.list) : ENTRIES.flat().filter(inG))
+                .filter((x) => pr.forms || !x.f)
+                .map((x) => label(x, pr.forms)),
+            ),
+          ],
+    [secs, gm, pr.forms, esp, sd],
   );
   /* Botones de sección: en la Pokédex del juego solo si el juego tiene más de una Pokédex */
   const chips = secs
@@ -927,7 +1123,11 @@ function App() {
             </button>`}
       </div>
       <div class="top">
-        <span>${gv ? "Pokédex de " + gm : gm || "Living Dex"}</span
+        <span
+          >${esp
+            ? SD.find(([k]) => k === sd)[1]
+            : (gv ? "Pokédex de " + gm : gm || "Living Dex") +
+              (fs ? " · shiny" : "")}</span
         ><span
           >${owned} / ${total} ·
           ${total ? ((owned / total) * 100).toFixed(1) : 0} %</span
@@ -938,50 +1138,76 @@ function App() {
       </div>
       <div class="opts vw">
         <button
-          class=${vw !== "game" ? "on" : ""}
+          class=${vw !== "game" && !esp ? "on" : ""}
           onClick=${() => sp("vw", "reg")}
         >
-          Pokédex regionales
+          Regionales
         </button>
         <button
           class=${vw === "game" ? "on" : ""}
           onClick=${() => sp("vw", "game")}
         >
-          Pokédex del juego
-        </button>
-      </div>
-      <select class="gsel" value=${gm} onChange=${(e) => setGm(e.target.value)}>
-        <option value="">
-          ${vw === "game"
-            ? "Elige el juego que estás jugando…"
-            : "Todos los juegos (Living Dex)"}
-        </option>
-        ${gs(GAMES).map(
-          (x) => html`<option key=${x} value=${x}>Jugando: ${x}</option>`,
-        )}
-      </select>
-      <div class="opts">
-        <button
-          class=${fx || fc || ft.length ? "on" : ""}
-          onClick=${() => setFx(!fx)}
-        >
-          ${fx ? "▴" : "▾"}
-          Filtros${fc || ft.length ? " · " + ((fc ? 1 : 0) + ft.length) : ""}
-        </button>
-        <button class=${pr.fm ? "on" : ""} onClick=${() => sp("fm", !pr.fm)}>
-          Solo me faltan
+          Del juego
         </button>
         <button
-          class=${pr.forms ? "on" : ""}
-          onClick=${() => sp("forms", !pr.forms)}
+          class=${esp ? "on" : ""}
+          onClick=${() => {
+            sp("vw", "esp");
+            openSel(false);
+          }}
         >
-          Formas
-        </button>
-        <button class=${sm ? "on" : ""} onClick=${() => openSel(!sm)}>
-          Seleccionar
+          Especiales
         </button>
       </div>
-      ${fx
+      ${esp
+        ? null
+        : html`<select
+            class="gsel"
+            value=${gm}
+            onChange=${(e) => setGm(e.target.value)}
+          >
+            <option value="">
+              ${vw === "game"
+                ? "Elige el juego que estás jugando…"
+                : "Todos los juegos (Living Dex)"}
+            </option>
+            ${gs(GAMES).map(
+              (x) => html`<option key=${x} value=${x}>Jugando: ${x}</option>`,
+            )}
+          </select>`}
+      ${esp
+        ? null
+        : html`<div class="opts">
+            <button
+              class=${fx || fc || ft.length ? "on" : ""}
+              onClick=${() => setFx(!fx)}
+            >
+              ${fx ? "▴" : "▾"}
+              Filtros${fc || ft.length
+                ? " · " + ((fc ? 1 : 0) + ft.length)
+                : ""}
+            </button>
+            <select
+              aria-label="Qué mostrar"
+              class=${fm ? "on" : ""}
+              value=${fm}
+              onChange=${(e) => sp("fm", e.target.value)}
+            >
+              <option value="">Ver: todos</option>
+              <option value="all">Solo me faltan</option>
+              <option value="shiny">Me faltan shiny</option>
+            </select>
+            <button
+              class=${pr.forms ? "on" : ""}
+              onClick=${() => sp("forms", !pr.forms)}
+            >
+              Formas
+            </button>
+            <button class=${sm ? "on" : ""} onClick=${() => openSel(!sm)}>
+              Seleccionar
+            </button>
+          </div>`}
+      ${fx && !esp
         ? html`<div class="opts">
               <select
                 aria-label="Orden de los juegos"
@@ -1054,12 +1280,17 @@ function App() {
                 </div>`
               : null}`
         : null}
-      ${gm
+      ${esp
         ? html`<div class="hint">
-            Toca un Pokémon para marcarlo en este juego; toca su imagen para ver
-            el detalle.
+            Toca para marcarlo como conseguido; toca su imagen para ver la ficha
+            de la especie.
           </div>`
-        : null}
+        : gm
+          ? html`<div class="hint">
+              Toca un Pokémon para marcarlo en este juego; toca su imagen para
+              ver el detalle.
+            </div>`
+          : null}
       <input
         style=${{ marginTop: 8 }}
         type="search"
@@ -1076,110 +1307,161 @@ function App() {
       <datalist id="dx-names">
         ${sugg.map((n) => html`<option key=${n} value=${n} />`)}
       </datalist>
-      ${chips.length
+      ${esp
         ? html`<div class="chips">
-            <button class=${reg < 0 ? "on" : ""} onClick=${() => setReg(-1)}>
-              Todas</button
-            >${chips.map(
-              (n, i) =>
+            ${SD.map(
+              ([k, n]) =>
                 html`<button
-                  key=${n}
-                  class=${reg === i ? "on" : ""}
-                  onClick=${() => setReg(i)}
+                  key=${k}
+                  class=${sd === k ? "on" : ""}
+                  onClick=${() => sp("sd", k)}
                 >
                   ${n}
                 </button>`,
             )}
           </div>`
-        : null}
-    </header>
-    ${vw === "game" && !gm
-      ? html`<div class="empty">
-          Elige arriba el juego que estás jugando para ver su Pokédex.
-        </div>`
-      : groups.length
-        ? groups.map(
-            ({ r, all, list, extra }) =>
-              html`<div key=${r.name}>
-                <h2>
-                  <span
-                    >${r.name}${extra
-                      ? html` <button
-                          class="ox"
-                          onClick=${() => sp("ox", !pr.ox)}
-                        >
-                          ${pr.ox ? "Ocultar" : "Mostrar"}
-                        </button>`
-                      : null}</span
-                  ><span
-                    >${all.filter((x) => own(x.k)).length}/${all.length}</span
+        : chips.length
+          ? html`<div class="chips">
+              <button class=${reg < 0 ? "on" : ""} onClick=${() => setReg(-1)}>
+                Todas</button
+              >${chips.map(
+                (n, i) =>
+                  html`<button
+                    key=${n}
+                    class=${reg === i ? "on" : ""}
+                    onClick=${() => setReg(i)}
                   >
-                </h2>
-                ${extra && !pr.ox
-                  ? html`<p class="hint ox-h">
-                      Pokémon que se consiguen en este juego sin estar en su
-                      Pokédex (eventos, Escaneo Isla, legendarios del DLC…). No
-                      cuentan en el total.
-                    </p>`
-                  : null}
-                <div class="list">
-                  ${list.map((x) => {
-                    const n = x.k,
-                      e = data[n],
-                      o = own(n),
-                      on = sm ? pk[n] : o;
-                    return html`<div
-                      class=${"row" + (pk[n] ? " pk" : "")}
-                      key=${n}
-                      onClick=${() =>
-                        sm ? togglePick(n) : gm ? tgl(n) : setSel(n)}
+                    ${n}
+                  </button>`,
+              )}
+            </div>`
+          : null}
+    </header>
+    ${esp
+      ? slist.length
+        ? html`<div>
+            <h2>
+              <span>${SD.find(([k]) => k === sd)[1]}</span
+              ><span>${owned}/${total}</span>
+            </h2>
+            <div class="list">
+              ${slist.map((r) => {
+                const o = son(r);
+                return html`<div
+                  class="row"
+                  key=${r.k}
+                  onClick=${() => upd(r.x.k, r.set)}
+                >
+                  <span
+                    onClick=${(ev) => {
+                      ev.stopPropagation();
+                      setSel(r.x.k);
+                      setLt(r.l || null);
+                    }}
+                    ><${Sprite} key=${r.k} name=${r.name} src=${r.img}
+                  /></span>
+                  <div class="nm">
+                    <b class=${o ? "" : "mu"}
+                      ><span class="num"
+                        >#${String(NUM[r.x.b]).padStart(4, "0")}</span
+                      >${r.name}</b
                     >
-                      <span
-                        onClick=${(ev) => {
-                          ev.stopPropagation();
-                          sm ? togglePick(n) : setSel(n);
-                        }}
-                        ><${Sprite}
-                          key=${srcs(x, e)[0]}
-                          name=${n}
-                          src=${srcs(x, e)}
-                      /></span>
-                      <div class="nm">
-                        <b class=${o ? "" : "mu"}
-                          ><span class="num"
-                            >#${x.dn != null
-                              ? String(x.dn).padStart(3, "0")
-                              : String(NUM[x.b]).padStart(4, "0")}</span
-                          >${label(x, pr.forms)}</b
-                        >${/^[hw]/.test(pr.po)
-                          ? html`<small>${fmtM(x)}</small>`
-                          : null}${e && e.games.length
-                          ? html`<small>${gs(e.games).join(", ")}</small>`
-                          : null}
-                      </div>
-                      ${e && e.shiny
-                        ? html`<span class="tg y"><${Shiny} /></span>`
-                        : null}${e && e.alpha
-                        ? html`<span class="tg p">α</span>`
-                        : null}${e && e.mega
-                        ? html`<span class="tg o">M</span>`
-                        : null}${e && e.gmax
-                        ? html`<span class="tg r">G</span>`
-                        : null}${e && e.primal
-                        ? html`<span class="tg o">Ω</span>`
-                        : null}
-                      <span class=${"ck" + (on ? " on" : "")}
-                        >${on ? "✓" : ""}</span
+                  </div>
+                  <span class=${"ck" + (o ? " on" : "")}>${o ? "✓" : ""}</span>
+                </div>`;
+              })}
+            </div>
+          </div>`
+        : html`<div class="empty">Sin resultados.</div>`
+      : vw === "game" && !gm
+        ? html`<div class="empty">
+            Elige arriba el juego que estás jugando para ver su Pokédex.
+          </div>`
+        : groups.length
+          ? groups.map(
+              ({ r, all, list, extra }) =>
+                html`<div key=${r.name}>
+                  <h2>
+                    <span
+                      >${r.name}${extra
+                        ? html` <button
+                            class="ox"
+                            onClick=${() => sp("ox", !pr.ox)}
+                          >
+                            ${pr.ox ? "Ocultar" : "Mostrar"}
+                          </button>`
+                        : null}</span
+                    ><span
+                      >${all.filter(inS).filter(got).length}/${all.filter(inS)
+                        .length}</span
+                    >
+                  </h2>
+                  ${extra && !pr.ox
+                    ? html`<p class="hint ox-h">
+                        Pokémon que se consiguen en este juego sin estar en su
+                        Pokédex (eventos, Escaneo Isla, legendarios del DLC…).
+                        No cuentan en el total.
+                      </p>`
+                    : null}
+                  <div class="list">
+                    ${list.map((x) => {
+                      const n = x.k,
+                        e = data[n],
+                        o = own(n),
+                        on = sm ? pk[n] : o;
+                      return html`<div
+                        class=${"row" + (pk[n] ? " pk" : "")}
+                        key=${n}
+                        onClick=${() =>
+                          sm
+                            ? togglePick(n)
+                            : gm
+                              ? tgl(n)
+                              : (setLt(null), setSel(n))}
                       >
-                    </div>`;
-                  })}
-                </div>
-              </div>`,
-          )
-        : html`<div class="empty">Sin resultados.</div>`}
+                        <span
+                          onClick=${(ev) => {
+                            ev.stopPropagation();
+                            sm ? togglePick(n) : (setLt(null), setSel(n));
+                          }}
+                          ><${Sprite} key=${x.s} name=${n} src=${srcs(x)}
+                        /></span>
+                        <div class="nm">
+                          <b class=${o ? "" : "mu"}
+                            ><span class="num"
+                              >#${x.dn != null
+                                ? String(x.dn).padStart(3, "0")
+                                : String(NUM[x.b]).padStart(4, "0")}</span
+                            >${label(x, pr.forms)}</b
+                          >${/^[hw]/.test(pr.po)
+                            ? html`<small>${fmtM(x)}</small>`
+                            : null}${e && e.games.length
+                            ? html`<small>${gs(e.games).join(", ")}</small>`
+                            : null}
+                        </div>
+                        ${e && e.shiny
+                          ? html`<span class="tg y"><${Shiny} /></span>`
+                          : null}${e && e.alpha
+                          ? html`<span class="tg p">α</span>`
+                          : null}${e && e.mega
+                          ? html`<span class="tg o">M</span>`
+                          : null}${e && e.gmax
+                          ? html`<span class="tg r">G</span>`
+                          : null}${e && e.primal
+                          ? html`<span class="tg o">Ω</span>`
+                          : null}
+                        <span class=${"ck" + (on ? " on" : "")}
+                          >${on ? "✓" : ""}</span
+                        >
+                      </div>`;
+                    })}
+                  </div>
+                </div>`,
+            )
+          : html`<div class="empty">Sin resultados.</div>`}
     <${Footer} />
-    <div style=${{ height: sm ? 220 : 30 }}></div>
-    ${sm
+    <div style=${{ height: sm && !esp ? 220 : 30 }}></div>
+    ${sm && !esp
       ? html`<div class="bulk">
           <div class="bk-top">
             <b>${picked.length} seleccionados</b>
@@ -1240,9 +1522,13 @@ function App() {
           av=${av(sx)}
           upd=${upd}
           del=${del}
-          close=${() => setSel(null)}
+          close=${() => {
+            setSel(null);
+            setLt(null);
+          }}
           gs=${gs}
           gm=${gm}
+          lt=${lt}
         />`
       : null}
   </div>`;
