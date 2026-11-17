@@ -273,7 +273,7 @@ ENTRIES.forEach((l) =>
     x.av = new Set((FAV[x.k] || AV[x.b] || []).map((i) => GAMES[i]));
     const m = M(x);
     x.can = {
-      shiny: !SHINY_LOCK.has(x.b),
+      shiny: !SHINY_LOCK.has(x.b) && !SHINY_LOCK.has(x.k),
       alpha: true,
       mega: !x.reg && !!(m && m[3].includes("mega")),
       gmax: !x.reg && GMAX.has(x.b),
