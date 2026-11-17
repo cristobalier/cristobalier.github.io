@@ -27,8 +27,6 @@
     "Calyrex",
     "Eternatus",
     "Enamorus",
-    "Koraidon",
-    "Miraidon",
     "Walking Wake",
     "Iron Leaves",
     "Okidogi",
