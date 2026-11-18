@@ -1,7 +1,17 @@
 /* Dexter · lógica de la app (React + htm, sin compilar)
    Cargar al final, después de los datos y de sync.js. */
-const { useState, useEffect, useDeferredValue, useMemo } = React;
+const { useState, useEffect, useDeferredValue, useMemo, useRef } = React;
 const html = htm.bind(React.createElement);
+/* Reproduce una animación CSS sobre un elemento, aunque se toque varias veces seguidas */
+const Animar = (el, clase = "pop") => {
+  if (!el) return;
+  el.classList.remove(clase);
+  void el.offsetWidth;
+  el.classList.add(clase);
+  el.addEventListener("animationend", () => el.classList.remove(clase), {
+    once: true,
+  });
+};
 const { REGIONS, GAMES, AV, REGIONAL, VARIANTS } = window.DATA;
 const GMAX = new Set(window.DATA.GMAX || []);
 const KEY = "dexter.v1",
@@ -263,6 +273,10 @@ const ZA_MEGA = new Set([
   "Baxcalibur",
 ]);
 const ZA = new Set([GAMES[21]]);
+/* Excepciones: NO_MEGA usa el nombre exacto (especie o forma) y NO_ALPHA la especie con todas sus formas.
+   Zygarde: solo la forma 100% puede megaevolucionar (en Z-A); ninguna forma puede ser alfa */
+const NO_MEGA = new Set(["Zygarde", "Zygarde (10%)"]),
+  NO_ALPHA = new Set(["Zygarde"]);
 /* ¿Se puede tener esta marca en este juego? Sin juego: en alguno de los juegos donde aparece */
 const canIn = (x, k, g) =>
   !!x.can[k] && (g ? x.mg[k].has(g) : x.mg[k].size > 0);
@@ -274,8 +288,8 @@ ENTRIES.forEach((l) =>
     const m = M(x);
     x.can = {
       shiny: !SHINY_LOCK.has(x.b) && !SHINY_LOCK.has(x.k),
-      alpha: true,
-      mega: !x.reg && !!(m && m[3].includes("mega")),
+      alpha: !NO_ALPHA.has(x.b),
+      mega: !x.reg && !NO_MEGA.has(x.k) && !!(m && m[3].includes("mega")),
       gmax: !x.reg && GMAX.has(x.b),
       primal: PRIMAL.has(x.b),
     };
@@ -489,48 +503,51 @@ const SPECIAL = (() => {
     e[k] = !e[k];
   };
   const mega = [];
-  base.forEach((x) => {
-    const b = slug(x.b),
-      o = MEGA2[x.b];
-    if (x.form.mega) {
-      if (o)
-        o.forEach(([k, t, s]) =>
+  /* Normalmente la Mega va en la forma base; si la base no puede (Zygarde), va en la forma que sí puede */
+  all
+    .filter((x) => !x.f || NO_MEGA.has(x.b))
+    .forEach((x) => {
+      const b = slug(x.b),
+        o = MEGA2[x.b];
+      if (x.form.mega) {
+        if (o)
+          o.forEach(([k, t, s]) =>
+            mega.push({
+              k: x.k + "|" + k,
+              x,
+              m: "mega",
+              name: t.replace("Mega", "Mega " + x.b),
+              img: urls([b + "-" + s]),
+              on: (e) => !!e[k],
+              set: (e) => {
+                e[k] = !e[k];
+                e.mega = o.some(([m]) => e[m]);
+              },
+            }),
+          );
+        else
           mega.push({
-            k: x.k + "|" + k,
+            k: x.k + "|mega",
             x,
             m: "mega",
-            name: t.replace("Mega", "Mega " + x.b),
-            img: urls([b + "-" + s]),
-            on: (e) => !!e[k],
-            set: (e) => {
-              e[k] = !e[k];
-              e.mega = o.some(([m]) => e[m]);
-            },
-          }),
-        );
-      else
+            name: "Mega " + x.b,
+            img: urls(megaImgs(x, {})),
+            on: (e) => !!e.mega,
+            set: tog("mega"),
+          });
+      }
+      /* La Regresión Primigenia va en la Megadex, junto a las Megas */
+      if (x.form.primal)
         mega.push({
-          k: x.k + "|mega",
+          k: x.k + "|primal",
           x,
-          m: "mega",
-          name: "Mega " + x.b,
-          img: urls(megaImgs(x, {})),
-          on: (e) => !!e.mega,
-          set: tog("mega"),
+          m: "primal",
+          name: x.b + " Primigenio",
+          img: urls([b + "-primal"]),
+          on: (e) => !!e.primal,
+          set: tog("primal"),
         });
-    }
-    /* La Regresión Primigenia va en la Megadex, junto a las Megas */
-    if (x.form.primal)
-      mega.push({
-        k: x.k + "|primal",
-        x,
-        m: "primal",
-        name: x.b + " Primigenio",
-        img: urls([b + "-primal"]),
-        on: (e) => !!e.primal,
-        set: tog("primal"),
-      });
-  });
+    });
   const gmax = base
     .filter((x) => x.form.gmax)
     .map((x) => ({
@@ -625,10 +642,16 @@ function Sheet({ x, title, e, av, upd, del, close, gs, gm, lt }) {
   const tg = (k, t) =>
     html`<button
       class=${e[k] ? "on" : ""}
-      onClick=${() =>
+      onClick=${(ev) => {
+        if (k === "shiny" && !e.shiny)
+          Animar(
+            ev.currentTarget.closest(".sh").querySelector(".hd"),
+            "brillo",
+          );
         upd(name, (x) => {
           x[k] = !x[k];
-        })}
+        });
+      }}
     >
       ${t}
     </button>`;
@@ -681,8 +704,11 @@ function Sheet({ x, title, e, av, upd, del, close, gs, gm, lt }) {
               )}
             </select>
             <button
-              onClick=${() => {
+              onClick=${(ev) => {
                 if (g) {
+                  Animar(
+                    ev.currentTarget.closest(".sh").querySelector(".hd .sp"),
+                  );
                   upd(name, (x) => {
                     if (!x.games.includes(g)) x.games.push(g);
                   });
@@ -816,6 +842,8 @@ function App() {
   const [bm, setBm] = useState([]);
   const [msg, setMsg] = useState("");
   const [data, setData] = useState(load);
+  /* Marca si el último cambio lo hiciste tú (y no la sincronización con la nube) */
+  const yo = useRef(false);
   const [q, setQ] = useState("");
   const [reg, setReg] = useState(-1);
   const [sel, setSel] = useState(null);
@@ -872,6 +900,7 @@ function App() {
   const gs = (arr) => [...arr].sort(GSORT[pr.go] || GSORT.new);
   const upd = (n, fn) =>
     setData((d) => {
+      yo.current = true;
       const x = { ...blank, ...(d[n] || {}) };
       x.games = [...x.games];
       fn(x);
@@ -929,6 +958,26 @@ function App() {
   const srows = esp ? SPECIAL[sd] : [];
   const total = esp ? srows.length : scope.length;
   const owned = esp ? srows.filter(son).length : scope.filter(got).length;
+  /* Celebración: cuando marcas el último que faltaba en la Pokédex que estás viendo */
+  const dexId = esp ? "esp:" + sd : vw + ":" + gm + (fs ? ":shiny" : "");
+  const dexName =
+    (esp
+      ? SD.find(([k]) => k === sd)[1]
+      : gv
+        ? "Pokédex de " + gm
+        : gm
+          ? "Living Dex de " + gm
+          : "Living Dex") + (fs ? " shiny" : "");
+  const lleno = total > 0 && owned === total;
+  const prev = useRef({ id: dexId, lleno });
+  useEffect(() => {
+    const p = prev.current,
+      mio = yo.current;
+    prev.current = { id: dexId, lleno };
+    yo.current = false;
+    if (mio && p.id === dexId && !p.lleno && lleno && window.Celebrar)
+      Celebrar("¡" + dexName + " completa!");
+  }, [owned, total, dexId]);
   /* La búsqueda usa un valor diferido para que escribir no se trabe */
   const dq = useDeferredValue(q);
   const nq = norm(dq);
@@ -1065,6 +1114,7 @@ function App() {
         ? plan.filter((p) => p.m.length < bm.length || (g && !p.g)).length
         : 0;
     setData((d) => {
+      yo.current = true;
       const r = { ...d };
       plan.forEach((p) => {
         if (!p.g && !p.m.length) return;
@@ -1350,7 +1400,10 @@ function App() {
                 return html`<div
                   class="row"
                   key=${r.k}
-                  onClick=${() => upd(r.x.k, r.set)}
+                  onClick=${(ev) => {
+                    if (!o) Animar(ev.currentTarget.querySelector(".sp"));
+                    upd(r.x.k, r.set);
+                  }}
                 >
                   <span
                     onClick=${(ev) => {
@@ -1412,12 +1465,12 @@ function App() {
                       return html`<div
                         class=${"row" + (pk[n] ? " pk" : "")}
                         key=${n}
-                        onClick=${() =>
-                          sm
-                            ? togglePick(n)
-                            : gm
-                              ? tgl(n)
-                              : (setLt(null), setSel(n))}
+                        onClick=${(ev) => {
+                          if (sm) return togglePick(n);
+                          if (!gm) return (setLt(null), setSel(n));
+                          if (!o) Animar(ev.currentTarget.querySelector(".sp"));
+                          tgl(n);
+                        }}
                       >
                         <span
                           onClick=${(ev) => {
