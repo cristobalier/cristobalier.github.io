@@ -1,5 +1,6 @@
 /* Dexter · celebración al completar una Pokédex (Lottie)
-   La librería se descarga solo la primera vez que se completa algo. */
+   Cargar ANTES de app.js. La librería se descarga solo la primera vez que se completa algo.
+   La animación va en anim/completado.json (descárgala de lottiefiles.com en formato Lottie JSON). */
 (function () {
   const SRC =
     "https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_light.min.js";
@@ -33,6 +34,7 @@
         path: "anim/completado.json",
       });
       a.addEventListener("complete", () => setTimeout(cerrar, 800));
+      a.addEventListener("data_failed", () => setTimeout(cerrar, 2500));
     } catch (e) {
       setTimeout(cerrar, 2500);
     }

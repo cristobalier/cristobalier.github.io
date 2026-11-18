@@ -1,0 +1,80 @@
+/* Dexter · animaciones (capturar, shiny y celebración) */
+
+/* Rebote del sprite al capturar */
+.pop {
+  animation: pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+@keyframes pop {
+  40% {
+    transform: scale(1.25) rotate(-6deg);
+  }
+}
+
+/* Estrellitas shiny */
+.star {
+  position: fixed;
+  z-index: 120;
+  pointer-events: none;
+  translate: -50% -50%;
+  fill: #ffe36b;
+  filter: drop-shadow(0 0 3px #fff6c2);
+  animation: star 0.7s ease-out both;
+}
+.star svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+@keyframes star {
+  0% {
+    transform: translate(0, 0) scale(0) rotate(0);
+    opacity: 1;
+  }
+  45% {
+    transform: translate(calc(var(--dx) * 0.6), calc(var(--dy) * 0.6))
+      scale(1.1) rotate(45deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) scale(0) rotate(90deg);
+    opacity: 0;
+  }
+}
+
+/* Celebración al completar una Pokédex */
+.celeb {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  background: rgb(0 0 0 / 0.45);
+  animation: celebIn 0.2s ease-out;
+}
+.celeb-anim {
+  width: min(70vw, 320px);
+  aspect-ratio: 1;
+}
+.celeb p {
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--tx);
+  font-weight: 600;
+  text-align: center;
+}
+@keyframes celebIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop,
+  .star,
+  .celeb {
+    animation: none;
+  }
+}

@@ -1,5 +1,5 @@
 /* Dexter · lógica de la app (React + htm, sin compilar)
-   Cargar al final, después de los datos y de sync.js. */
+   Cargar al final, después de los datos, de sync.js y de celebrar.js. */
 const { useState, useEffect, useDeferredValue, useMemo, useRef } = React;
 const html = htm.bind(React.createElement);
 /* Reproduce una animación CSS sobre un elemento, aunque se toque varias veces seguidas */
@@ -11,6 +11,29 @@ const Animar = (el, clase = "pop") => {
   el.addEventListener("animationend", () => el.classList.remove(clase), {
     once: true,
   });
+};
+/* Estrellitas shiny alrededor del Pokémon, en dos tandas como al aparecer uno shiny en combate.
+   Van sobre la página (no dentro de React) porque la imagen cambia a la versión shiny al marcarla. */
+const STAR =
+  '<svg viewBox="0 0 24 24"><path d="M12 0Q12 12 24 12Q12 12 12 24Q12 12 0 12Q12 12 12 0Z"/></svg>';
+const Estrellas = (sp) => {
+  if (!sp || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const s = sp.getBoundingClientRect(),
+    cx = s.left + s.width / 2,
+    cy = s.top + s.height / 2,
+    r = s.width * 0.42;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.random() * 0.5,
+      z = 10 + Math.random() * 10,
+      el = document.createElement("span");
+    el.className = "star";
+    el.innerHTML = STAR;
+    el.style.cssText =
+      `left:${cx + Math.cos(a) * r}px;top:${cy + Math.sin(a) * r}px;width:${z}px;height:${z}px;` +
+      `--dx:${Math.cos(a) * 14}px;--dy:${Math.sin(a) * 14}px;animation-delay:${(i % 2) * 0.3 + Math.random() * 0.08}s`;
+    document.body.appendChild(el);
+    el.addEventListener("animationend", () => el.remove(), { once: true });
+  }
 };
 const { REGIONS, GAMES, AV, REGIONAL, VARIANTS } = window.DATA;
 const GMAX = new Set(window.DATA.GMAX || []);
@@ -639,15 +662,13 @@ function Sheet({ x, title, e, av, upd, del, close, gs, gm, lt }) {
   const [all, setAll] = useState(false);
   const opts = gs(all ? GAMES : av);
   const has = !isEmpty(e);
+  /* Al marcar shiny salen estrellitas alrededor de la imagen de la ficha */
   const tg = (k, t) =>
     html`<button
       class=${e[k] ? "on" : ""}
       onClick=${(ev) => {
         if (k === "shiny" && !e.shiny)
-          Animar(
-            ev.currentTarget.closest(".sh").querySelector(".hd"),
-            "brillo",
-          );
+          Estrellas(ev.currentTarget.closest(".sh").querySelector(".hd .sp"));
         upd(name, (x) => {
           x[k] = !x[k];
         });
